@@ -1,0 +1,26 @@
+name: windows
+on:
+  push:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r windows/requirements.txt pyinstaller
+      - name: Smoke test
+        run: python windows/wochenzentrale.py --preview preview.png --size 1920x1080
+      - run: pyinstaller --onefile --noconsole --name Wochenzentrale windows/wochenzentrale.py
+      - name: Release
+        if: github.ref == 'refs/heads/main'
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        shell: bash
+        run: |
+          gh release create "windows-${{ github.run_number }}" dist/Wochenzentrale.exe preview.png \
+            --title "Windows ${{ github.run_number }}" \
+            --notes "Wochenzentrale für Windows: Doppelklick installiert und startet. Einstellungen in %LOCALAPPDATA%\\Wochenzentrale\\config.json."
