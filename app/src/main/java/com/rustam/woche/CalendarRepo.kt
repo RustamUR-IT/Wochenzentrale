@@ -31,6 +31,7 @@ object CalendarRepo {
             CalendarContract.Instances.VISIBLE,
             CalendarContract.Instances.CALENDAR_ACCESS_LEVEL,
             CalendarContract.Instances.RRULE,
+            CalendarContract.Instances.CALENDAR_ID,
         )
         val out = mutableListOf<Ev>()
         c.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { cur ->
@@ -41,7 +42,7 @@ object CalendarRepo {
                 val editable = cur.getInt(7) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR
                 val recurring = !cur.getString(8).isNullOrBlank()
                 out.add(Ev(cur.getLong(0), title, cur.getLong(2), cur.getLong(3), classify(baseTitle(title), cur.getString(5) ?: ""),
-                    editable, recurring, allDay))
+                    editable, recurring, allDay, cur.getLong(9)))
             }
         }
         return out
@@ -54,6 +55,29 @@ object CalendarRepo {
     fun countdowns(c: Context): List<Countdown> {
         val today = LocalDate.now()
         return countdowns(load(c, today, today.plusDays(90), includeAllDay = true), System.currentTimeMillis(), today)
+    }
+
+    /** Sucht einen Nachhol-Platz in den nächsten 8 Tagen. */
+    fun makeUpSlot(c: Context, ev: Ev): Pair<Long, Long>? {
+        val today = LocalDate.now()
+        val evs = load(c, today, today.plusDays(9), includeAllDay = false) +
+            load(c, today, today.plusDays(20), includeAllDay = true).filter { it.allDay && isExamTitle(it.title) }
+        return findMakeUpSlot(ev, evs, System.currentTimeMillis())
+    }
+
+    /** Legt den Nachholblock im selben Kalender an (mit [auto-plan], damit die Planung ihn kennt). */
+    fun insertMakeUp(c: Context, ev: Ev, slot: Pair<Long, Long>): Boolean {
+        if (!canWrite(c) || ev.calId == 0L) return false
+        val day = java.time.Instant.ofEpochMilli(ev.startMs).atZone(ZoneId.systemDefault())
+        val values = android.content.ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, ev.calId)
+            put(CalendarContract.Events.TITLE, makeUpTitle(ev))
+            put(CalendarContract.Events.DESCRIPTION, "Nachholen von \"${baseTitle(ev.title)}\" (verpasst am ${day.dayOfMonth}.${day.monthValue}.)\n[auto-plan]")
+            put(CalendarContract.Events.DTSTART, slot.first)
+            put(CalendarContract.Events.DTEND, slot.second)
+            put(CalendarContract.Events.EVENT_TIMEZONE, ZoneId.systemDefault().id)
+        }
+        return c.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values) != null
     }
 
     /** Markiert einen Termin als erledigt/verpasst, indem das Titel-Präfix gesetzt wird. Google synchronisiert das zurück. */

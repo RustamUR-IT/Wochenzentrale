@@ -88,4 +88,45 @@ class LogicTest {
         assertEquals(10L, cd[0].days)
         assertEquals("in 10 Tagen", daysLabel(cd[0].days))
     }
+
+    private fun at(day: LocalDate, h: Int, m: Int = 0) = day.atTime(h, m).atZone(z).toInstant().toEpochMilli()
+
+    @Test fun makeUpStudyKeepsOneHourBuffer() {
+        val fri = LocalDate.of(2026, 10, 23)
+        val missed = Ev(1, "✗ 📚 Mathe: Thema 2", at(fri, 8), at(fri, 9), Cat.STUDY)
+        val fh = Ev(2, "MACS1-ILV", at(fri, 10), at(fri, 12), Cat.FH)
+        val slot = findMakeUpSlot(missed, listOf(missed, fh), at(fri, 9, 5), z)!!
+        assertTrue(slot.first >= at(fri, 13))          // 1 h nach FH-Ende
+        assertEquals(60L * 60_000L, slot.second - slot.first)
+        assertEquals("📚 Mathe: Make-up Thema 2", makeUpTitle(missed))
+    }
+
+    @Test fun makeUpStudyStopsBeforeExam() {
+        val mon = LocalDate.of(2026, 10, 26)
+        val missed = Ev(1, "✗ 📚 Mathe: Thema 5", at(mon, 8), at(mon, 9), Cat.STUDY)
+        val exam = Ev(3, "🎯 PRÜFUNG Mathe: Test 1", at(mon.plusDays(1), 8), at(mon.plusDays(1), 9), Cat.MISC)
+        val blockers = (9..20).map { h -> Ev(100L + h, "Termin", at(mon, h), at(mon, h, 30), Cat.MISC) }
+        assertNull(findMakeUpSlot(missed, listOf(exam) + blockers, at(mon, 9), z))
+    }
+
+    @Test fun makeUpGymRespectsRecovery() {
+        val mon = LocalDate.of(2026, 10, 26)
+        val missed = Ev(1, "✗ 🏋️ Gym A", at(mon, 13), at(mon, 15, 30), Cat.GYM)
+        val wedGym = Ev(2, "🏋️ Gym B: HARD LEGS", at(mon.plusDays(2), 13), at(mon.plusDays(2), 15, 30), Cat.GYM)
+        val slot = findMakeUpSlot(missed, listOf(missed, wedGym), at(mon, 16), z)!!
+        val day = java.time.Instant.ofEpochMilli(slot.first).atZone(z).toLocalDate()
+        assertTrue(day != mon.plusDays(1) && day != mon.plusDays(2) && day != mon.plusDays(3))   // nicht neben dem Beintag
+        assertEquals(150L * 60_000L, slot.second - slot.first)
+        assertTrue(!day.isAfter(LocalDate.of(2026, 11, 1)))                                        // nur diese Woche
+    }
+
+    @Test fun runNotAfterLegDay() {
+        val mon = LocalDate.of(2026, 10, 26)
+        val missed = Ev(1, "✗ 🏃 Run #1", at(mon, 15), at(mon, 16), Cat.GYM)
+        val legs = Ev(2, "🏋️ Gym B: HARD LEGS", at(mon, 17), at(mon, 19, 30), Cat.GYM)
+        val slot = findMakeUpSlot(missed, listOf(missed, legs), at(mon, 16, 30), z)!!
+        val day = java.time.Instant.ofEpochMilli(slot.first).atZone(z).toLocalDate()
+        assertTrue(day != mon.plusDays(1))
+        assertEquals(MakeUpKind.RUN, makeUpKind(missed))
+    }
 }

@@ -90,17 +90,28 @@ fun App() {
     val countdown = remember(granted, tick) { if (granted) CalendarRepo.countdowns(ctx) else emptyList() }
     var pick by remember { mutableStateOf<Ev?>(null) }
     var pendingStatus by remember { mutableStateOf<Pair<Ev, Status>?>(null) }
+    var offer by remember { mutableStateOf<Pair<Ev, Pair<Long, Long>>?>(null) }
+    var wantMakeUp by remember { mutableStateOf(false) }
+    fun proposeMakeUp(ev: Ev) {
+        if (makeUpKind(ev) == MakeUpKind.NONE) return
+        val slot = CalendarRepo.makeUpSlot(ctx, ev)
+        if (slot != null) offer = ev to slot
+        else android.widget.Toast.makeText(ctx, if (makeUpKind(ev) == MakeUpKind.STUDY)
+            "Kein passender Platz in den nächsten Tagen. Die Sonntagsplanung holt es nach."
+            else "Diese Woche passt kein sinnvoller Platz mehr. Lieber ausfallen lassen als quetschen.",
+            android.widget.Toast.LENGTH_LONG).show()
+    }
     val askWrite = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         val p = pendingStatus
-        if (ok && p != null) { CalendarRepo.setStatus(ctx, p.first, p.second); tick++ }
-        pendingStatus = null
+        if (ok && p != null) { CalendarRepo.setStatus(ctx, p.first, p.second); tick++; if (wantMakeUp) proposeMakeUp(p.first) }
+        pendingStatus = null; wantMakeUp = false
     }
     fun mark(ev: Ev, st: Status) {
         if (!ev.editable || ev.recurring) {
             android.widget.Toast.makeText(ctx, if (ev.recurring) "Wiederkehrende Termine kann ich nicht einzeln markieren" else "Dieser Kalender ist nur lesbar (FH, Dienstplan, Moodle)", android.widget.Toast.LENGTH_LONG).show()
             return
         }
-        if (CalendarRepo.canWrite(ctx)) { CalendarRepo.setStatus(ctx, ev, st); tick++ }
+        if (CalendarRepo.canWrite(ctx)) { CalendarRepo.setStatus(ctx, ev, st); tick++; if (wantMakeUp) { wantMakeUp = false; proposeMakeUp(ev) } }
         else { pendingStatus = ev to st; askWrite.launch(Manifest.permission.WRITE_CALENDAR) }
     }
     val s = LocalDensity.current.density / 2.4f
@@ -115,6 +126,18 @@ fun App() {
             val t = tick
             drawIntoCanvas { Renderer.background(it.nativeCanvas, size.width, size.height, look, s) }
         }
+        offer?.let { (ev, slot) ->
+            val st = java.time.Instant.ofEpochMilli(slot.first).atZone(ZoneId.systemDefault())
+            val dn = st.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.GERMAN)
+            AlertDialog(onDismissRequest = { offer = null },
+                title = { Text("Nachholen?", fontFamily = fontFamily(look)) },
+                text = { Text("${shortTitle(makeUpTitle(ev), false)}\n$dn ${st.dayOfMonth}.${st.monthValue}., ${hm(slot.first)}–${hm(slot.second)}\n\nMit 1 h Abstand zu anderen Terminen.") },
+                confirmButton = { TextButton(onClick = {
+                    val ok = CalendarRepo.insertMakeUp(ctx, ev, slot); offer = null; tick++
+                    android.widget.Toast.makeText(ctx, if (ok) "Eingetragen" else "Konnte nicht eingetragen werden", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("Eintragen") } },
+                dismissButton = { TextButton(onClick = { offer = null }) { Text("Nein") } })
+        }
         pick?.let { ev ->
             AlertDialog(onDismissRequest = { pick = null },
                 title = { Text(shortTitle(ev.title, false), fontFamily = fontFamily(look)) },
@@ -124,6 +147,8 @@ fun App() {
                 dismissButton = {
                     Row {
                         TextButton(onClick = { mark(ev, Status.MISSED); pick = null }) { Text("✗ Verpasst") }
+                        if (makeUpKind(ev) != MakeUpKind.NONE)
+                            TextButton(onClick = { wantMakeUp = true; mark(ev, Status.MISSED); pick = null }) { Text("✗ + Nachholen") }
                         if (statusOf(ev.title) != Status.OPEN) TextButton(onClick = { mark(ev, Status.OPEN); pick = null }) { Text("Zurücksetzen") }
                     }
                 })

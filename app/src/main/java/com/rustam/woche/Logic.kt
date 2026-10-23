@@ -18,6 +18,7 @@ enum class Cat(val label: String, val bg: Long, val fg: Long) {
 data class Ev(
     val id: Long, val title: String, val startMs: Long, val endMs: Long, val cat: Cat,
     val editable: Boolean = false, val recurring: Boolean = false, val allDay: Boolean = false,
+    val calId: Long = 0,
 )
 
 enum class Status { OPEN, DONE, MISSED }
@@ -165,3 +166,99 @@ enum class Subject(val label: String, val color: Long, val pattern: Regex) {
 }
 
 fun subjectOf(title: String): Subject? = Subject.values().firstOrNull { it.pattern.containsMatchIn(title) }
+
+// ---------------------------------------------------------------- Nachholen verpasster Blöcke
+
+enum class MakeUpKind { STUDY, GYM, RUN, NONE }
+
+private val runRe = Regex("🏃|\\brun\\b|lauf|zone ?2", RegexOption.IGNORE_CASE)
+private val legRe = Regex("leg|bein", RegexOption.IGNORE_CASE)
+
+fun makeUpKind(ev: Ev): MakeUpKind = when {
+    ev.cat == Cat.STUDY -> MakeUpKind.STUDY
+    ev.cat == Cat.GYM && runRe.containsMatchIn(ev.title) -> MakeUpKind.RUN
+    ev.cat == Cat.GYM && !Regex("stretch|🧘", RegexOption.IGNORE_CASE).containsMatchIn(ev.title) -> MakeUpKind.GYM
+    else -> MakeUpKind.NONE
+}
+
+/** Titel des Nachholblocks: "📚 Mathe: Make-up Thema 2" bzw. gleicher Titel fürs Training. */
+fun makeUpTitle(ev: Ev): String {
+    val base = baseTitle(ev.title)
+    if (makeUpKind(ev) != MakeUpKind.STUDY || base.contains("Make-up")) return base
+    val i = base.indexOf(": ")
+    return if (i > 0) base.substring(0, i + 2) + "Make-up " + base.substring(i + 2) else "Make-up: $base"
+}
+
+/**
+ * Sucht den frühesten passenden Platz für einen verpassten Block.
+ * Regeln: 1 h Abstand zu allen anderen Terminen (Weg), nie in den Schlaf (Ende spätestens 21:00 bzw. 20:00 fürs Gym),
+ * Lernen max. 4 h pro Tag und vor der zugehörigen Prüfung, Gym nur an einem Tag ohne harte Einheit am Vortag/Folgetag
+ * und nicht vor Prüfung oder Lauf, Lauf nicht nach dem Beintag; Training nur in der laufenden Woche.
+ * Gibt Start und Ende (ms) zurück oder null.
+ */
+fun findMakeUpSlot(
+    missed: Ev, others: List<Ev>, nowMs: Long,
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    bufferMin: Int = 60, stepMin: Int = 15,
+): Pair<Long, Long>? {
+    val kind = makeUpKind(missed)
+    if (kind == MakeUpKind.NONE) return null
+    val durMin = when (kind) {
+        MakeUpKind.GYM -> 150
+        MakeUpKind.RUN -> 60
+        else -> ((missed.endMs - missed.startMs) / 60_000L).toInt().coerceIn(30, 120)
+    }
+    val busy = others.filter { it.id != missed.id && statusOf(it.title) != Status.MISSED && !isPointDeadline(it) }
+    val today = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    val weekEnd = mondayOf(today).plusDays(6)
+    val subject = subjectOf(missed.title)
+    val examLimit = busy.filter { isExamTitle(it.title) && it.startMs > nowMs && subject != null && subjectOf(it.title) == subject }
+        .minOfOrNull { it.startMs }
+    val lastDay = when (kind) {
+        MakeUpKind.STUDY -> today.plusDays(7)
+        else -> weekEnd
+    }
+    val (winStart, winEnd) = when (kind) {
+        MakeUpKind.STUDY -> 7 * 60 + 30 to 21 * 60
+        MakeUpKind.GYM -> 10 * 60 + 30 to 20 * 60
+        MakeUpKind.RUN -> 8 * 60 + 30 to 20 * 60
+        else -> 0 to 0
+    }
+    fun dayOf(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
+    fun on(d: java.time.LocalDate, pred: (Ev) -> Boolean) = busy.any { dayOf(it.startMs) == d && pred(it) }
+    fun isGym(e: Ev) = makeUpKind(e) == MakeUpKind.GYM
+    fun isRun(e: Ev) = makeUpKind(e) == MakeUpKind.RUN
+    fun nightShift(e: Ev) = e.cat == Cat.WORK && (e.endMs - e.startMs) >= 8 * 3_600_000L &&
+        java.time.Instant.ofEpochMilli(e.startMs).atZone(zone).hour >= 17
+
+    var d = today
+    while (!d.isAfter(lastDay)) {
+        val dayOk = when (kind) {
+            MakeUpKind.STUDY -> {
+                val studied = busy.filter { dayOf(it.startMs) == d && it.cat == Cat.STUDY }.sumOf { (it.endMs - it.startMs) / 60_000L }
+                studied + durMin <= 240 && !on(d, ::nightShift) && !on(d.minusDays(1), ::nightShift)
+            }
+            MakeUpKind.GYM -> !on(d, ::isGym) && !on(d.minusDays(1), ::isGym) && !on(d.plusDays(1), ::isGym) &&
+                !on(d, ::isRun) && !on(d.plusDays(1), ::isRun) && !on(d.plusDays(1)) { isExamTitle(it.title) } &&
+                !on(d, ::nightShift) && !on(d.minusDays(1), ::nightShift)
+            MakeUpKind.RUN -> !on(d, ::isRun) && !on(d.minusDays(1)) { isGym(it) && legRe.containsMatchIn(it.title) } &&
+                !on(d, ::nightShift) && !on(d.minusDays(1), ::nightShift)
+            else -> false
+        }
+        if (dayOk) {
+            var m = winStart
+            while (m + durMin <= winEnd) {
+                val s = d.atStartOfDay(zone).plusMinutes(m.toLong()).toInstant().toEpochMilli()
+                val e = s + durMin * 60_000L
+                val free = busy.none { it.startMs < e + bufferMin * 60_000L && it.endMs > s - bufferMin * 60_000L }
+                if (s >= nowMs + 30 * 60_000L && free && (examLimit == null || e <= examLimit - 12 * 3_600_000L)) return s to e
+                m += stepMin
+            }
+        }
+        d = d.plusDays(1)
+    }
+    return null
+}
+
+/** Moodle-Fristen ohne Dauer blockieren keine Zeit. */
+fun isPointDeadline(e: Ev): Boolean = e.endMs - e.startMs <= 60_000L && isExamTitle(e.title)
