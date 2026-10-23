@@ -39,12 +39,11 @@ class WocheWallpaper : WallpaperService() {
             val evs = CalendarRepo.load(applicationContext, days.first(), days.last().plusDays(1))
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
             val left = 120f * s; val right = w - 30f * s
-            val top = 470f * s; val bottom = h - 300f * s
-            val t0 = 6; val t1 = 23
+            val top = 860f * s; val bottom = h - 240f * s
+            val t0 = 7; val t1 = 23
             val ph = (bottom - top) / (t1 - t0)
             val dn = arrayOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
             p.color = Color.parseColor("#E8EAF0"); p.textSize = 80f * s; p.typeface = Typeface.DEFAULT_BOLD
-            c.drawText(if (nDays == 1) "${dn[today.dayOfWeek.value - 1]}, ${today.dayOfMonth}.${today.monthValue}." else "${days.first().dayOfMonth}.${days.first().monthValue}. – ${days.last().dayOfMonth}.${days.last().monthValue}.", 50f * s, 330f * s, p)
             p.typeface = Typeface.DEFAULT; p.strokeWidth = 1f
             for (hr in t0 until t1) {
                 val y = top + (hr - t0) * ph

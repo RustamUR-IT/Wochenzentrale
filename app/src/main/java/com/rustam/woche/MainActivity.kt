@@ -89,16 +89,19 @@ fun App() {
 private fun Header(anchor: LocalDate, weekView: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onToday: () -> Unit, onToggle: () -> Unit) {
     val title = if (weekView) { val m = mondayOf(anchor); "${m.dayOfMonth}.${m.monthValue}. – ${m.plusDays(6).dayOfMonth}.${m.plusDays(6).monthValue}." }
     else "${anchor.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.GERMAN)}, ${anchor.dayOfMonth}.${anchor.monthValue}."
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Chip("‹", onPrev); Chip("Heute", onToday); Chip("›", onNext); Chip(if (weekView) "Tag" else "Woche", onToggle)
-        val ctx = androidx.compose.ui.platform.LocalContext.current
-        var wd by remember { mutableIntStateOf(ctx.getSharedPreferences("woche", 0).getInt("wall_days", 1)) }
-        Chip(when (wd) { 1 -> "BG: 1 Tag"; 3 -> "BG: 3 Tage"; else -> "BG: Woche" }) {
-            wd = when (wd) { 1 -> 3; 3 -> 7; else -> 1 }
-            ctx.getSharedPreferences("woche", 0).edit().putInt("wall_days", wd).apply()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var wd by remember { mutableIntStateOf(ctx.getSharedPreferences("woche", 0).getInt("wall_days", 1)) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Text(title, color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            Chip("‹", onPrev); Chip("Heute", onToday); Chip("›", onNext); Chip(if (weekView) "Tag" else "Woche", onToggle)
+            Chip(when (wd) { 1 -> "BG: 1 Tag"; 3 -> "BG: 3 Tage"; else -> "BG: Woche" }) {
+                wd = when (wd) { 1 -> 3; 3 -> 7; else -> 1 }
+                ctx.getSharedPreferences("woche", 0).edit().putInt("wall_days", wd).apply()
+            }
+            Chip("Festlegen") { setWallpaper(ctx) }
         }
-        Chip("Festlegen") { setWallpaper(ctx) }
     }
 }
 
