@@ -92,6 +92,8 @@ private fun Header(anchor: LocalDate, weekView: Boolean, onPrev: () -> Unit, onN
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         Chip("‹", onPrev); Chip("Heute", onToday); Chip("›", onNext); Chip(if (weekView) "Tag" else "Woche", onToggle)
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        Chip("Hintergrund") { setWallpaper(ctx) }
     }
 }
 
@@ -182,6 +184,21 @@ private fun DayColumn(day: LocalDate, events: List<Ev>, now: LocalDateTime, modi
         if (day == now.toLocalDate()) {
             val m = now.hour * 60 + now.minute - START_H * 60
             if (m in 0..(END_H - START_H) * 60) Box(Modifier.offset(y = pxPerMin * m).fillMaxWidth().height(2.dp).background(NowRed))
+        }
+    }
+}
+
+/** Öffnet das System-Fenster, in dem der Live-Hintergrund bestätigt wird. */
+private fun setWallpaper(ctx: android.content.Context) {
+    try {
+        ctx.startActivity(android.content.Intent(android.app.WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+            .putExtra(android.app.WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, android.content.ComponentName(ctx, WocheWallpaper::class.java))
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        try {
+            ctx.startActivity(android.content.Intent(android.app.WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e2: Exception) {
+            android.widget.Toast.makeText(ctx, "Öffne Hintergrund-Einstellungen von Hand", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }
