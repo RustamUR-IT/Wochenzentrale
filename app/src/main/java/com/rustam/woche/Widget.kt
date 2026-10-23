@@ -34,7 +34,7 @@ class TodayWidget : GlanceAppWidget() {
                 if (evs.isEmpty()) Text("Nichts mehr geplant", style = TextStyle(color = ColorProvider(Color(look.theme.text)), fontSize = 14.sp))
                 evs.forEach {
                     Text("${hmz(it.startMs)}  ${shortTitle(it.title, false)}", maxLines = 1,
-                        style = TextStyle(color = ColorProvider(Color(look.fg(it.cat))), fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                        style = TextStyle(color = ColorProvider(Color(look.colorFor(it.title, it.cat))), fontSize = 13.sp, fontWeight = FontWeight.Medium))
                 }
             }
         }

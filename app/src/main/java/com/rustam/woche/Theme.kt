@@ -34,6 +34,18 @@ val THEMES: List<WTheme> = listOf(
         0xFF05070D, 0xFF0A1430, 0xFF0A1124, 0xFF16223F, 0xFFDDEBFF, 0xFF6E86AD, 0xFF6FD3FF, 0xFFFF4D6D,
         longArrayOf(0xFF7C8CFF, 0xFF4FC3FF, 0xFF5CFFB0, 0xFFFF5C7A, 0xFFFFD84D, 0xFFC77DFF, 0xFF39F0E0, 0xFF8FA3BF),
         Frame.BRACKETS, FontStyle.MONO, Fx.STARS, glow = true, caps = true),
+    WTheme("mondsilber", "Mondsilber", "Dunkles Silber, weiße Klammern, satte Akzente",
+        0xFF0B0C10, 0xFF17191F, 0xFF14161B, 0xFF2A2D35, 0xFFF2F4F8, 0xFF9AA0AC, 0xFFE6E9F0, 0xFFFF4D5E,
+        longArrayOf(0xFF8E9BFF, 0xFF5AB8FF, 0xFF4CE0A0, 0xFFFF6B6B, 0xFFFFD25A, 0xFFE58CFF, 0xFF3FE0E0, 0xFFC0C6D0),
+        Frame.BRACKETS, FontStyle.SANS, Fx.STARS, glow = true, caps = true),
+    WTheme("platin", "Platin", "Gravierte Silberrahmen, weißer Zauberkreis",
+        0xFF121316, 0xFF1E2026, 0xFF191B20, 0xFF30333B, 0xFFF7F8FA, 0xFFA3A8B3, 0xFFC9CED8, 0xFF5AC8FA,
+        longArrayOf(0xFF9AA6FF, 0xFF6EC1FF, 0xFF5FE3A6, 0xFFFF7A7A, 0xFFF5CF5F, 0xFFE09AF5, 0xFF52D9D9, 0xFFB9BFC9),
+        Frame.ENGRAVED, FontStyle.SERIF, Fx.CIRCLE, glow = false, caps = false),
+    WTheme("obsidian", "Obsidian", "Tiefschwarz und reines Weiß, maximaler Kontrast",
+        0xFF000000, 0xFF070707, 0xFF0E0E0E, 0xFF222222, 0xFFFFFFFF, 0xFF8C8C8C, 0xFFFFFFFF, 0xFFFF3B30,
+        longArrayOf(0xFF7D8BFF, 0xFF3FA9FF, 0xFF30D98A, 0xFFFF5252, 0xFFFFCC33, 0xFFD97CFF, 0xFF2EE6E6, 0xFFBDBDBD),
+        Frame.ROUND, FontStyle.SANS, Fx.NONE, glow = false, caps = false),
     WTheme("leere", "Leere", "Violettes Licht, Zauberkreis im Hintergrund",
         0xFF07040C, 0xFF170A26, 0xFF120A1E, 0xFF2A1B3D, 0xFFEDE3FF, 0xFF8E7FAD, 0xFFB47CFF, 0xFFFF5FA2,
         longArrayOf(0xFF9A8CFF, 0xFF8F7BFF, 0xFF6FE3C1, 0xFFFF6FA3, 0xFFE8C46A, 0xFFD58CFF, 0xFF7FD6FF, 0xFF9C93B5),
@@ -69,8 +81,18 @@ data class Look(
     val glow: Boolean,
     val caps: Boolean,
     val fill: Float,
+    val bySubject: Boolean = true,
 ) {
     fun fg(c: Cat): Long = theme.cat(c)
+
+    /** Farbe eines Termins: Fachfarbe (falls erkannt und eingeschaltet), sonst Kategoriefarbe. */
+    fun colorFor(title: String, c: Cat): Long {
+        if (bySubject && (c == Cat.FH || c == Cat.STUDY)) {
+            val sub = subjectOf(title)
+            if (sub != null) return mixOf(sub.color, theme.text, 0.12f).toLong() and 0xFFFFFFFFL
+        }
+        return fg(c)
+    }
 
     companion object {
         fun of(t: WTheme, fill: Float = 0.22f) = Look(t, t.frame, t.font, t.fx, t.glow, t.caps, fill)
@@ -88,7 +110,7 @@ object LookStore {
         val fx = Fx.values().firstOrNull { it.name == sp.getString("fx", null) } ?: t.fx
         val glow = if (sp.contains("glow")) sp.getBoolean("glow", t.glow) else t.glow
         val caps = if (sp.contains("caps")) sp.getBoolean("caps", t.caps) else t.caps
-        return Look(t, frame, font, fx, glow, caps, sp.getFloat("fill", 0.22f))
+        return Look(t, frame, font, fx, glow, caps, sp.getFloat("fill", 0.22f), sp.getBoolean("subj", true))
     }
 
     /** Neuer Stil setzt die Feineinstellungen auf die Vorgaben des Stils zurück. */

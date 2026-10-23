@@ -98,3 +98,17 @@ fun shortTitle(title: String, compact: Boolean): String {
     }
     return t.ifBlank { title }
 }
+
+/** Fächer mit eigener Farbe. Erkennung über FH-Kürzel und typische Wörter im Titel. */
+enum class Subject(val label: String, val color: Long, val pattern: Regex) {
+    MATHE("Mathe", 0xFFFFB84D, Regex("MACS|Mathe", RegexOption.IGNORE_CASE)),
+    DB("Datenmanagement", 0xFF4DD2FF, Regex("DMNMT|Datenmanagement|SQL|Datenbank", RegexOption.IGNORE_CASE)),
+    INFRA("Infrastruktur", 0xFF7CFF8A, Regex("INFRA|Infrastruktur|Netzwerk", RegexOption.IGNORE_CASE)),
+    C("C / Prozedural", 0xFFFF6B9E, Regex("PROZD|Prozedural|\\bC\\b", RegexOption.IGNORE_CASE)),
+    WEB("Web", 0xFFB48CFF, Regex("WTBIF|Webtech|Web-|PHP|HTML", RegexOption.IGNORE_CASE)),
+    KOKO("KoKo", 0xFFFF8F5A, Regex("KOKO|Kompetenz", RegexOption.IGNORE_CASE)),
+    ENGLISCH("Englisch", 0xFF5AE6C8, Regex("ENG1|English|Englisch", RegexOption.IGNORE_CASE)),
+    SECURITY("Security+", 0xFFFF5A5A, Regex("Security\\+|Sec\\+|CompTIA", RegexOption.IGNORE_CASE)),
+}
+
+fun subjectOf(title: String): Subject? = Subject.values().firstOrNull { it.pattern.containsMatchIn(title) }

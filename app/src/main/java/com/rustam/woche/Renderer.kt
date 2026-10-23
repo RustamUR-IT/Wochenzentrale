@@ -183,7 +183,7 @@ object Renderer {
     /** Ein Termin-Block im gewählten Rahmenstil. Wächst bei Bedarf auf eine Textzeile Mindesthöhe. */
     fun block(c: Canvas, r0: RectF, rawTitle: String, time: String?, cat: Cat, l: Look, s: Float, compact: Boolean,
               tp: TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG), p: Paint = Paint(Paint.ANTI_ALIAS_FLAG)) {
-        val fg = l.fg(cat)
+        val fg = l.colorFor(rawTitle, cat)
         val padX = 9f * s; val padY = 6f * s
         val tw = (r0.width() - padX - 6f * s).toInt()
         if (tw < 12) return
@@ -255,7 +255,7 @@ object Renderer {
     fun preview(c: Canvas, w: Float, h: Float, l: Look, s: Float) {
         val pad = 14f * s
         val cw = (w - 4 * pad) / 3
-        val samples = listOf(Triple("Vorlesung", Cat.FH, 0.15f), Triple("Training", Cat.GYM, 0.35f), Triple("Lernen: Kapitel 3", Cat.STUDY, 0.2f))
+        val samples = listOf(Triple("Mathe Vorlesung", Cat.FH, 0.15f), Triple("Training", Cat.GYM, 0.35f), Triple("SQL lernen", Cat.STUDY, 0.2f))
         samples.forEachIndexed { i, (t, cat, off) ->
             val x = pad + i * (cw + pad)
             block(c, RectF(x, pad + off * h * 0.5f, x + cw, h - pad), t, "10:00–11:30", cat, l, s, true)

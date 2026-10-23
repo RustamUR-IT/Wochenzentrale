@@ -53,4 +53,13 @@ class LogicTest {
         assertEquals(THEMES.size, THEMES.map { it.id }.toSet().size)
         THEMES.forEach { assertEquals(it.name, Cat.values().size, it.palette.size) }
     }
+
+    @Test fun detectsSubjects() {
+        assertEquals(Subject.MATHE, subjectOf("📚 Mathe: Thema 2"))
+        assertEquals(Subject.DB, subjectOf("DMNMT-ILV EDV_A2.07"))
+        assertEquals(Subject.C, subjectOf("PROZD-LAB EDV_F4.24"))
+        assertEquals(Subject.WEB, subjectOf("Webtech: Nachbereitung PHP Basics"))
+        assertEquals(Subject.SECURITY, subjectOf("Security+: Domain 1"))
+        assertEquals(null, subjectOf("Pull Day"))
+    }
 }

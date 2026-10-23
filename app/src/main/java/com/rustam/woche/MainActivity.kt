@@ -248,6 +248,18 @@ private fun LookScreen(look: Look, s: Float, onChange: () -> Unit, onBack: () ->
         Options(look, Fx.values().map { it.label }, look.fx.ordinal) { LookStore.put(ctx, "fx", Fx.values()[it].name); onChange() }
         Toggle(look, "Leuchten", look.glow) { LookStore.putBool(ctx, "glow", it); onChange() }
         Toggle(look, "Großbuchstaben", look.caps) { LookStore.putBool(ctx, "caps", it); onChange() }
+        Toggle(look, "Farbe je Fach", look.bySubject) { LookStore.putBool(ctx, "subj", it); onChange() }
+        if (look.bySubject) {
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                Subject.values().forEach { sub ->
+                    Row(Modifier.padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(Color(mixOf(sub.color, look.theme.text, 0.12f))))
+                        Spacer(Modifier.width(4.dp))
+                        Text(sub.label, color = Color(look.theme.text), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
         Section(look, "Farbstärke der Blöcke")
         Slider(value = look.fill, onValueChange = { LookStore.putFloat(ctx, "fill", it); onChange() }, valueRange = 0.08f..0.45f,
             colors = SliderDefaults.colors(thumbColor = Color(look.theme.accent), activeTrackColor = Color(look.theme.accent),
