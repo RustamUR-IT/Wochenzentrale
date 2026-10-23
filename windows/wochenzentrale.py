@@ -872,6 +872,9 @@ def install():
     target = HOME / exe.name
     if exe != target:
         shutil.copy2(exe, target)
+    side = exe.parent / "config.json"   # vorbereitete Einstellungen neben der .exe übernehmen
+    if side.exists() and not CONFIG.exists():
+        shutil.copy2(side, CONFIG)
     load_config()
     if IS_WIN:
         import winreg
