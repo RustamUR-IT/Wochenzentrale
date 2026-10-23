@@ -62,4 +62,30 @@ class LogicTest {
         assertEquals(Subject.SECURITY, subjectOf("Security+: Domain 1"))
         assertEquals(null, subjectOf("Pull Day"))
     }
+
+    @Test fun statusRoundTrip() {
+        assertEquals(Status.DONE, statusOf(withStatus("📚 Mathe: T2", Status.DONE)))
+        assertEquals(Status.MISSED, statusOf(withStatus("✓ 📚 Mathe: T2", Status.MISSED)))
+        assertEquals("📚 Mathe: T2", withStatus("✗ 📚 Mathe: T2", Status.OPEN))
+        assertEquals(Status.OPEN, statusOf("Pull Day"))
+    }
+
+    @Test fun examsAndCountdown() {
+        assertTrue(isExamTitle("🎯 Mathe Test 1"))
+        assertTrue(isExamTitle("Minitest 6 (Elementare Funktionen) (MACS1) endet"))
+        assertTrue(isExamTitle("Peer Review Zwischentest 2 Abgabebeginn"))
+        assertFalse(isExamTitle("📚 Mathe: Mock test before Mathe test"))
+        assertFalse(isExamTitle("MACS1-ILV HS_A3.14"))
+        val today = LocalDate.of(2026, 10, 23)
+        val now = today.atTime(20, 0).atZone(z).toInstant().toEpochMilli()
+        val e1 = Ev(1, "🎯 Mathe Test 1", LocalDate.of(2026, 11, 2).atStartOfDay(z).toInstant().toEpochMilli(),
+            LocalDate.of(2026, 11, 3).atStartOfDay(z).toInstant().toEpochMilli(), Cat.MISC, allDay = true)
+        val e2 = Ev(2, "Minitest 6 endet", LocalDate.of(2026, 11, 9).atStartOfDay(z).toInstant().toEpochMilli(),
+            LocalDate.of(2026, 11, 9).atStartOfDay(z).toInstant().toEpochMilli(), Cat.MISC)
+        val cd = countdowns(listOf(e2, e1, e1.copy(id = 3)), now, today, z)
+        assertEquals(2, cd.size)
+        assertEquals("Mathe Test 1", cd[0].title)
+        assertEquals(10L, cd[0].days)
+        assertEquals("in 10 Tagen", daysLabel(cd[0].days))
+    }
 }

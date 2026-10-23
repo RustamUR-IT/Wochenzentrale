@@ -12,7 +12,7 @@ object CalendarRepo {
     fun hasPermission(c: Context) =
         c.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
-    fun load(c: Context, from: LocalDate, toExclusive: LocalDate): List<Ev> {
+    fun load(c: Context, from: LocalDate, toExclusive: LocalDate, includeAllDay: Boolean = false): List<Ev> {
         if (!hasPermission(c)) return emptyList()
         val zone = ZoneId.systemDefault()
         val b = dayStartMs(from, zone)
@@ -29,15 +29,38 @@ object CalendarRepo {
             CalendarContract.Instances.ALL_DAY,
             CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
             CalendarContract.Instances.VISIBLE,
+            CalendarContract.Instances.CALENDAR_ACCESS_LEVEL,
+            CalendarContract.Instances.RRULE,
         )
         val out = mutableListOf<Ev>()
         c.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { cur ->
             while (cur.moveToNext()) {
-                if (cur.getInt(4) == 1 || cur.getInt(6) == 0) continue
+                val allDay = cur.getInt(4) == 1
+                if ((allDay && !includeAllDay) || cur.getInt(6) == 0) continue
                 val title = cur.getString(1) ?: "(ohne Titel)"
-                out.add(Ev(cur.getLong(0), title, cur.getLong(2), cur.getLong(3), classify(title, cur.getString(5) ?: "")))
+                val editable = cur.getInt(7) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR
+                val recurring = !cur.getString(8).isNullOrBlank()
+                out.add(Ev(cur.getLong(0), title, cur.getLong(2), cur.getLong(3), classify(baseTitle(title), cur.getString(5) ?: ""),
+                    editable, recurring, allDay))
             }
         }
         return out
+    }
+
+    fun canWrite(c: Context) =
+        c.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+    /** Prüfungen und Fristen der nächsten 90 Tage (auch ganztägige Marker). */
+    fun countdowns(c: Context): List<Countdown> {
+        val today = LocalDate.now()
+        return countdowns(load(c, today, today.plusDays(90), includeAllDay = true), System.currentTimeMillis(), today)
+    }
+
+    /** Markiert einen Termin als erledigt/verpasst, indem das Titel-Präfix gesetzt wird. Google synchronisiert das zurück. */
+    fun setStatus(c: Context, ev: Ev, st: Status): Boolean {
+        if (!canWrite(c) || !ev.editable || ev.recurring) return false
+        val values = android.content.ContentValues().apply { put(CalendarContract.Events.TITLE, withStatus(ev.title, st)) }
+        val uri = android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, ev.id)
+        return c.contentResolver.update(uri, values, null, null) > 0
     }
 }

@@ -15,7 +15,60 @@ enum class Cat(val label: String, val bg: Long, val fg: Long) {
     MISC("Sonstiges", 0xFF262A36, 0xFFB8BECE),
 }
 
-data class Ev(val id: Long, val title: String, val startMs: Long, val endMs: Long, val cat: Cat)
+data class Ev(
+    val id: Long, val title: String, val startMs: Long, val endMs: Long, val cat: Cat,
+    val editable: Boolean = false, val recurring: Boolean = false, val allDay: Boolean = false,
+)
+
+enum class Status { OPEN, DONE, MISSED }
+
+const val DONE_MARK = "✓ "
+const val MISSED_MARK = "✗ "
+
+fun statusOf(title: String): Status = when {
+    title.startsWith("✓") -> Status.DONE
+    title.startsWith("✗") -> Status.MISSED
+    else -> Status.OPEN
+}
+
+/** Titel ohne Status-Präfix. */
+fun baseTitle(title: String): String = title.removePrefix(DONE_MARK).removePrefix(MISSED_MARK).removePrefix("✓").removePrefix("✗").trimStart()
+
+fun withStatus(title: String, st: Status): String = when (st) {
+    Status.OPEN -> baseTitle(title)
+    Status.DONE -> DONE_MARK + baseTitle(title)
+    Status.MISSED -> MISSED_MARK + baseTitle(title)
+}
+
+private val examRe = Regex("(?i)prüfung|pruefung|klausur|\\btest\\b|abschlusstest|teilprüfung|zwischentest|minitest|abgabe|endet|deadline|peer review|🎯")
+private val notExamRe = Regex("(?i)^📚|probetest|mock|vorbereitung|nachbereitung")
+
+/** Prüfungen und Fristen: Kalendertitel mit Prüfungswörtern, aber keine eigenen Lernblöcke. */
+fun isExamTitle(title: String): Boolean {
+    val t = baseTitle(title)
+    return examRe.containsMatchIn(t) && !notExamRe.containsMatchIn(t)
+}
+
+data class Countdown(val title: String, val days: Long, val startMs: Long)
+
+/** Die nächsten Prüfungen/Fristen ab jetzt, jede nur einmal, nach Datum sortiert. */
+fun countdowns(evs: List<Ev>, nowMs: Long, today: java.time.LocalDate, zone: java.time.ZoneId = java.time.ZoneId.systemDefault(), max: Int = 3): List<Countdown> {
+    val seen = mutableSetOf<String>()
+    return evs.filter { isExamTitle(it.title) && it.endMs >= nowMs }
+        .sortedBy { it.startMs }
+        .mapNotNull { e ->
+            val name = shortTitle(e.title.replace("🎯", "").trim(), false)
+            if (!seen.add(name.lowercase())) return@mapNotNull null
+            val d = java.time.Instant.ofEpochMilli(e.startMs).atZone(zone).toLocalDate()
+            Countdown(name, java.time.temporal.ChronoUnit.DAYS.between(today, d), e.startMs)
+        }.take(max)
+}
+
+fun daysLabel(days: Long): String = when {
+    days <= 0L -> "heute"
+    days == 1L -> "morgen"
+    else -> "in $days Tagen"
+}
 
 /** Ein Termin, auf einen Tag zugeschnitten und mit Spalte bei Überlappung. */
 data class Placed(val ev: Ev, val fromMin: Int, val toMin: Int, val col: Int, val cols: Int)

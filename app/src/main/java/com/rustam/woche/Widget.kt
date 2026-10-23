@@ -26,11 +26,14 @@ class TodayWidget : GlanceAppWidget() {
         val today = LocalDate.now()
         val now = System.currentTimeMillis()
         val look = LookStore.load(context)
+        val next = CalendarRepo.countdowns(context).firstOrNull()
         val evs = CalendarRepo.load(context, today, today.plusDays(1))
             .filter { it.endMs > now && it.cat != Cat.SLEEP }.sortedBy { it.startMs }.take(8)
         provideContent {
             Column(GlanceModifier.fillMaxSize().background(ColorProvider(Color(look.theme.bgBottom))).padding(10.dp)) {
                 Text(if (look.caps) "[ HEUTE ]" else "Heute", style = TextStyle(color = ColorProvider(Color(look.theme.accent)), fontSize = 11.sp))
+                if (next != null) Text("${next.title} · ${daysLabel(next.days)}", maxLines = 1,
+                    style = TextStyle(color = ColorProvider(Color(look.theme.now)), fontSize = 12.sp, fontWeight = FontWeight.Bold))
                 if (evs.isEmpty()) Text("Nichts mehr geplant", style = TextStyle(color = ColorProvider(Color(look.theme.text)), fontSize = 14.sp))
                 evs.forEach {
                     Text("${hmz(it.startMs)}  ${shortTitle(it.title, false)}", maxLines = 1,
@@ -48,4 +51,9 @@ private fun hmz(ms: Long): String {
 
 class TodayReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodayWidget()
+
+    override fun onUpdate(context: Context, appWidgetManager: android.appwidget.AppWidgetManager, appWidgetIds: IntArray) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
+        CalendarChangeJob.schedule(context)
+    }
 }

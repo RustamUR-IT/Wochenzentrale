@@ -124,6 +124,7 @@ object Renderer {
         c: Canvas, x: Float, y: Float, w: Float, h: Float,
         days: List<LocalDate>, evs: List<Ev>, t0: Int, t1: Int,
         l: Look, s: Float, compact: Boolean, headH: Float, skipSleep: Boolean,
+        hits: MutableList<Pair<RectF, Ev>>? = null,
     ) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         val labelW = 54f * s
@@ -165,6 +166,7 @@ object Renderer {
                 val y1 = top + (b2 - t0) * ph - 1.5f
                 val r = RectF(cx + pl.col * cw + 2f, y0, cx + (pl.col + 1) * cw - 2f, y1)
                 block(c, r, pl.ev.title, "${hmOf(pl.ev.startMs)}–${hmOf(pl.ev.endMs)}", pl.ev.cat, l, s, compact, tp, p)
+                hits?.add(RectF(r) to pl.ev)
             }
         }
         val n = LocalDateTime.now(); val m = n.hour + n.minute / 60f
@@ -178,6 +180,35 @@ object Renderer {
             c.drawLine(left + ti * colW, yy, left + (ti + 1) * colW, yy, p)
             c.drawCircle(left + ti * colW, yy, 8f * s, p)
         }
+    }
+
+    /** Countdown-Leiste: die nächsten Prüfungen/Fristen als farbige Marken. Gibt die genutzte Höhe zurück. */
+    fun countdownStrip(c: Canvas, x: Float, y: Float, w: Float, items: List<Countdown>, l: Look, s: Float): Float {
+        if (items.isEmpty()) return 0f
+        val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = typeface(l, true); textSize = 26f * s }
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val h = 50f * s
+        var cx = x
+        for (it in items) {
+            val col = l.colorFor(it.title, Cat.STUDY).let { cc -> if (subjectOf(it.title) == null) l.theme.accent else cc }
+            var label = "${it.title} · ${daysLabel(it.days)}"
+            if (l.caps) label = label.uppercase()
+            val maxW = (w - (cx - x))
+            if (maxW < 160f * s) break
+            val tw = minOf(tp.measureText(label), maxW - 30f * s)
+            val text = TextUtils.ellipsize(label, tp, tw, TextUtils.TruncateAt.END).toString()
+            val r = RectF(cx, y, cx + tw + 28f * s, y + h)
+            val urgent = it.days <= 3
+            p.style = Paint.Style.FILL; p.color = alphaOf(col, if (urgent) 0.32f else 0.18f)
+            val rad = if (l.frame == Frame.ROUND) 12f * s else 4f * s
+            c.drawRoundRect(r, rad, rad, p)
+            p.style = Paint.Style.STROKE; p.strokeWidth = (if (urgent) 2.5f else 1.2f) * s; p.color = alphaOf(col, 0.9f)
+            c.drawRoundRect(r, rad, rad, p)
+            tp.color = (if (urgent) l.theme.text else col).toInt()
+            c.drawText(text, r.left + 14f * s, r.centerY() + 9f * s, tp)
+            cx = r.right + 10f * s
+        }
+        return h + 14f * s
     }
 
     /** Ein Termin-Block im gewählten Rahmenstil. Wächst bei Bedarf auf eine Textzeile Mindesthöhe. */
@@ -240,6 +271,7 @@ object Renderer {
         p.style = Paint.Style.FILL
 
         val text = title + if (time != null && r.height() > lineH * 4) "\n$time" else ""
+        val st = statusOf(rawTitle)
         val maxLines = ((r.height() - padY) / lineH).toInt().coerceAtLeast(1)
         val layout = StaticLayout.Builder.obtain(text, 0, text.length, tp, tw)
             .setMaxLines(maxLines).setEllipsize(TextUtils.TruncateAt.END)
@@ -249,6 +281,24 @@ object Renderer {
             .build()
         c.save(); c.clipRect(r); c.translate(r.left + padX, r.top + padY)
         layout.draw(c); c.restore()
+        if (st != Status.OPEN) {
+            // erledigt: Haken, verpasst: Kreuz und abgedunkelt
+            p.style = Paint.Style.FILL
+            if (st == Status.MISSED) { p.color = alphaOf(0xFF000000, 0.45f); c.drawRoundRect(r, rad, rad, p) }
+            val bs = minOf(26f * s, r.height() - 4f)
+            val bx = r.right - bs - 4f * s; val by = r.top + 4f * s
+            p.color = (if (st == Status.DONE) 0xFF3DDC84 else l.theme.now).toInt()
+            c.drawCircle(bx + bs / 2, by + bs / 2, bs / 2, p)
+            p.color = 0xFF000000.toInt(); p.style = Paint.Style.STROKE; p.strokeWidth = 3f * s
+            if (st == Status.DONE) {
+                c.drawLine(bx + bs * 0.25f, by + bs * 0.52f, bx + bs * 0.43f, by + bs * 0.7f, p)
+                c.drawLine(bx + bs * 0.43f, by + bs * 0.7f, bx + bs * 0.76f, by + bs * 0.32f, p)
+            } else {
+                c.drawLine(bx + bs * 0.3f, by + bs * 0.3f, bx + bs * 0.7f, by + bs * 0.7f, p)
+                c.drawLine(bx + bs * 0.7f, by + bs * 0.3f, bx + bs * 0.3f, by + bs * 0.7f, p)
+            }
+            p.style = Paint.Style.FILL
+        }
     }
 
     /** Drei Beispielblöcke für die Stil-Vorschau im Aussehen-Menü. */

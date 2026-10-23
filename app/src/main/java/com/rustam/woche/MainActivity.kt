@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -28,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -72,6 +76,33 @@ fun App() {
     var anchor by remember { mutableStateOf(LocalDate.now()) }
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
+    // sofort neu laden, sobald Android eine Kalenderänderung meldet
+    DisposableEffect(granted) {
+        val obs = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { tick++ }
+        }
+        if (granted) {
+            try { ctx.contentResolver.registerContentObserver(android.provider.CalendarContract.CONTENT_URI, true, obs) } catch (_: Exception) {}
+            CalendarChangeJob.schedule(ctx)
+        }
+        onDispose { ctx.contentResolver.unregisterContentObserver(obs) }
+    }
+    val countdown = remember(granted, tick) { if (granted) CalendarRepo.countdowns(ctx) else emptyList() }
+    var pick by remember { mutableStateOf<Ev?>(null) }
+    var pendingStatus by remember { mutableStateOf<Pair<Ev, Status>?>(null) }
+    val askWrite = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val p = pendingStatus
+        if (ok && p != null) { CalendarRepo.setStatus(ctx, p.first, p.second); tick++ }
+        pendingStatus = null
+    }
+    fun mark(ev: Ev, st: Status) {
+        if (!ev.editable || ev.recurring) {
+            android.widget.Toast.makeText(ctx, if (ev.recurring) "Wiederkehrende Termine kann ich nicht einzeln markieren" else "Dieser Kalender ist nur lesbar (FH, Dienstplan, Moodle)", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        if (CalendarRepo.canWrite(ctx)) { CalendarRepo.setStatus(ctx, ev, st); tick++ }
+        else { pendingStatus = ev to st; askWrite.launch(Manifest.permission.WRITE_CALENDAR) }
+    }
     val s = LocalDensity.current.density / 2.4f
 
     val days = if (weekView) { val m = mondayOf(anchor); (0..6).map { m.plusDays(it.toLong()) } } else listOf(anchor)
@@ -83,6 +114,19 @@ fun App() {
         Canvas(Modifier.fillMaxSize()) {
             val t = tick
             drawIntoCanvas { Renderer.background(it.nativeCanvas, size.width, size.height, look, s) }
+        }
+        pick?.let { ev ->
+            AlertDialog(onDismissRequest = { pick = null },
+                title = { Text(shortTitle(ev.title, false), fontFamily = fontFamily(look)) },
+                text = { Text("${hm(ev.startMs)}–${hm(ev.endMs)}" + when (statusOf(ev.title)) {
+                    Status.DONE -> " · erledigt"; Status.MISSED -> " · verpasst"; else -> "" }) },
+                confirmButton = { TextButton(onClick = { mark(ev, Status.DONE); pick = null }) { Text("✓ Erledigt") } },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { mark(ev, Status.MISSED); pick = null }) { Text("✗ Verpasst") }
+                        if (statusOf(ev.title) != Status.OPEN) TextButton(onClick = { mark(ev, Status.OPEN); pick = null }) { Text("Zurücksetzen") }
+                    }
+                })
         }
         if (screen == "look") {
             BackHandler { screen = "main" }
@@ -106,8 +150,9 @@ fun App() {
                         Chip(look, "Zugriff erlauben", selected = true) { ask.launch(Manifest.permission.READ_CALENDAR) }
                     }
                 } else {
+                    CountdownRow(look, countdown)
                     if (!weekView) NowCard(look, events)
-                    Timeline(days, events, weekView, look, s, tick)
+                    Timeline(days, events, weekView, look, s, tick, onTap = { pick = it })
                 }
             }
         }
@@ -151,6 +196,24 @@ private fun Chip(look: Look, text: String, selected: Boolean = false, onClick: (
 }
 
 @Composable
+private fun CountdownRow(look: Look, items: List<Countdown>) {
+    if (items.isEmpty()) return
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 8.dp)) {
+        items.forEach { cd ->
+            val sub = subjectOf(cd.title)
+            val col = if (sub != null) mixOf(sub.color, look.theme.text, 0.12f).toLong() and 0xFFFFFFFFL else look.theme.accent
+            val urgent = cd.days <= 3
+            val shape = RoundedCornerShape(if (look.frame == Frame.ROUND) 8.dp else 3.dp)
+            Box(Modifier.padding(end = 6.dp).clip(shape).background(Color(alphaOf(col, if (urgent) 0.32f else 0.16f)))
+                .border(if (urgent) 2.dp else 1.dp, Color(alphaOf(col, 0.9f)), shape).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Text(cap(look, "${cd.title} · ${daysLabel(cd.days)}"), color = Color(if (urgent) look.theme.text else col),
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = fontFamily(look), maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
 private fun NowCard(look: Look, events: List<Ev>) {
     val nowMs = System.currentTimeMillis()
     val cur = events.filter { it.startMs <= nowMs && it.endMs > nowMs && it.cat != Cat.SLEEP }.maxByOrNull { it.startMs }
@@ -184,7 +247,8 @@ private fun hm(ms: Long): String {
 }
 
 @Composable
-private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean, look: Look, s: Float, tick: Int) {
+private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean, look: Look, s: Float, tick: Int, onTap: (Ev) -> Unit) {
+    val hits = remember { mutableListOf<Pair<android.graphics.RectF, Ev>>() }
     val density = LocalDensity.current
     val vScroll = rememberScrollState()
     LaunchedEffect(Unit) {
@@ -197,11 +261,14 @@ private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean,
     Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {
         val draw: Modifier = if (weekView) Modifier.width(30.dp + 130.dp * 7).height(totalH) else Modifier.fillMaxWidth().height(totalH)
         Box(if (weekView) Modifier.horizontalScroll(rememberScrollState()) else Modifier) {
-            Canvas(draw) {
+            Canvas(draw.pointerInput(events) {
+                detectTapGestures { o -> hits.lastOrNull { it.first.contains(o.x, o.y) }?.let { onTap(it.second) } }
+            }) {
                 val t = tick
+                hits.clear()
                 drawIntoCanvas {
                     Renderer.schedule(it.nativeCanvas, 0f, 0f, size.width - 8f, size.height, days, events, T0, T1, look, s,
-                        compact = weekView, headH = headPx, skipSleep = false)
+                        compact = weekView, headH = headPx, skipSleep = false, hits = hits)
                 }
             }
         }

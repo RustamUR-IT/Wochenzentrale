@@ -15,7 +15,14 @@ class WocheWallpaper : WallpaperService() {
         private val tick = object : Runnable { override fun run() { draw(); if (visible) handler.postDelayed(this, 60_000) } }
         override fun onVisibilityChanged(v: Boolean) { visible = v; handler.removeCallbacks(tick); if (v) tick.run() }
         override fun onSurfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) { draw() }
-        override fun onDestroy() { handler.removeCallbacks(tick) }
+        private val observer = object : android.database.ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) { if (visible) draw() }
+        }
+        override fun onCreate(holder: SurfaceHolder) {
+            super.onCreate(holder)
+            try { contentResolver.registerContentObserver(android.provider.CalendarContract.CONTENT_URI, true, observer) } catch (_: Exception) {}
+        }
+        override fun onDestroy() { handler.removeCallbacks(tick); contentResolver.unregisterContentObserver(observer) }
 
         private fun draw() {
             val holder = surfaceHolder
@@ -35,7 +42,8 @@ class WocheWallpaper : WallpaperService() {
             val evs = CalendarRepo.load(applicationContext, days.first(), days.last().plusDays(1))
             val skip = nDays > 1
             val (t0, t1) = Renderer.hourRange(evs, days, skip)
-            val y0 = 300f * s
+            val strip = Renderer.countdownStrip(c, 20f * s, 290f * s, w - 40f * s, CalendarRepo.countdowns(applicationContext), look, s)
+            val y0 = 300f * s + strip
             Renderer.schedule(c, 0f, y0, w - 12f * s, h - 120f * s - y0, days, evs, t0, t1, look, s,
                 compact = nDays > 3, headH = if (nDays > 1) 56f * s else 0f, skipSleep = skip)
         }
