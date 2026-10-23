@@ -48,4 +48,9 @@ class LogicTest {
         assertEquals("MACS1 ILV HS_A3.14", shortTitle("MACS1-ILV HS_A3.14 - BIF-1L2", true))
         assertEquals("PROZD LAB EDV_F4.24", shortTitle("PROZD-LAB EDV_F4.24 - BIF-1L2", false))
     }
+
+    @Test fun themesAreComplete() {
+        assertEquals(THEMES.size, THEMES.map { it.id }.toSet().size)
+        THEMES.forEach { assertEquals(it.name, Cat.values().size, it.palette.size) }
+    }
 }

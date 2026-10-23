@@ -3,21 +3,33 @@ package com.rustam.woche
 import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,15 +42,9 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
 
-private val Bg = Color(0xFF0F1117)
-private val Panel = Color(0xFF161922)
-private val Line = Color(0xFF262A36)
-private val Mute = Color(0xFF8A91A5)
-private val Fg = Color(0xFFE8EAF0)
-private val NowRed = Color(0xFFFF5D62)
-private const val START_H = 5
-private const val END_H = 24
-private val HOUR_H = 48.dp
+private const val T0 = 5
+private const val T1 = 24
+private val HOUR_H = 56.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,88 +53,127 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun fontFamily(l: Look): FontFamily = when (l.font) {
+    FontStyle.SANS -> FontFamily.SansSerif
+    FontStyle.SERIF -> FontFamily.Serif
+    FontStyle.MONO -> FontFamily.Monospace
+}
+
+private fun cap(l: Look, t: String) = if (l.caps) t.uppercase() else t
+
 @Composable
 fun App() {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val ctx = LocalContext.current
     var granted by remember { mutableStateOf(CalendarRepo.hasPermission(ctx)) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    var look by remember { mutableStateOf(LookStore.load(ctx)) }
+    var screen by remember { mutableStateOf("main") }
     var weekView by remember { mutableStateOf(false) }
     var anchor by remember { mutableStateOf(LocalDate.now()) }
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(60_000); now = LocalDateTime.now(); tick++ } }
+    LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
+    val s = LocalDensity.current.density / 2.4f
 
     val days = if (weekView) { val m = mondayOf(anchor); (0..6).map { m.plusDays(it.toLong()) } } else listOf(anchor)
     val events = remember(granted, days.first(), days.size, tick) {
         if (granted) CalendarRepo.load(ctx, days.first(), days.last().plusDays(1)) else emptyList()
     }
 
-    Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding()) {
-        Header(anchor, weekView, onPrev = { anchor = anchor.minusDays(if (weekView) 7 else 1) },
-            onNext = { anchor = anchor.plusDays(if (weekView) 7 else 1) },
-            onToday = { anchor = LocalDate.now() }, onToggle = { weekView = !weekView })
-        if (!granted) {
-            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
-                Text("Kalender-Zugriff nötig", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text("Die App liest die Kalender, die dein Handy schon synchronisiert (Google, FH, Dienstplan). Es gibt keinen Login und nichts verlässt das Handy.", color = Mute)
-                Spacer(Modifier.height(16.dp))
-                Box(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(NowRed)
-                    .clickable { ask.launch(Manifest.permission.READ_CALENDAR) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("Zugriff erlauben", color = Color.White)
+    Box(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val t = tick
+            drawIntoCanvas { Renderer.background(it.nativeCanvas, size.width, size.height, look, s) }
+        }
+        if (screen == "look") {
+            BackHandler { screen = "main" }
+            LookScreen(look, s, onChange = { look = LookStore.load(ctx) }, onBack = { screen = "main" })
+        } else {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                Header(look, anchor, weekView,
+                    onPrev = { anchor = anchor.minusDays(if (weekView) 7 else 1) },
+                    onNext = { anchor = anchor.plusDays(if (weekView) 7 else 1) },
+                    onToday = { anchor = LocalDate.now() },
+                    onToggle = { weekView = !weekView },
+                    onLook = { screen = "look" })
+                if (!granted) {
+                    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+                        Text(cap(look, "Kalender-Zugriff nötig"), color = Color(look.theme.text), fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold, fontFamily = fontFamily(look))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Die App liest die Kalender, die dein Handy schon synchronisiert (Google, FH, Dienstplan). Es gibt keinen Login und nichts verlässt das Handy.",
+                            color = Color(look.theme.mute))
+                        Spacer(Modifier.height(16.dp))
+                        Chip(look, "Zugriff erlauben", selected = true) { ask.launch(Manifest.permission.READ_CALENDAR) }
+                    }
+                } else {
+                    if (!weekView) NowCard(look, events)
+                    Timeline(days, events, weekView, look, s, tick)
                 }
             }
-        } else {
-            if (!weekView) NowCard(events, now)
-            Timeline(days, events, now, weekView)
         }
     }
 }
 
 @Composable
-private fun Header(anchor: LocalDate, weekView: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onToday: () -> Unit, onToggle: () -> Unit) {
+private fun Header(look: Look, anchor: LocalDate, weekView: Boolean, onPrev: () -> Unit, onNext: () -> Unit,
+                   onToday: () -> Unit, onToggle: () -> Unit, onLook: () -> Unit) {
     val title = if (weekView) { val m = mondayOf(anchor); "${m.dayOfMonth}.${m.monthValue}. – ${m.plusDays(6).dayOfMonth}.${m.plusDays(6).monthValue}." }
-    else "${anchor.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.GERMAN)}, ${anchor.dayOfMonth}.${anchor.monthValue}."
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+        else "${anchor.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.GERMAN)}, ${anchor.dayOfMonth}.${anchor.monthValue}."
+    val ctx = LocalContext.current
     var wd by remember { mutableIntStateOf(ctx.getSharedPreferences("woche", 0).getInt("wall_days", 1)) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text(title, color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(cap(look, title), color = Color(look.theme.text), fontSize = 22.sp, fontWeight = FontWeight.Bold,
+            fontFamily = fontFamily(look), maxLines = 1)
         Spacer(Modifier.height(6.dp))
         Row(Modifier.horizontalScroll(rememberScrollState())) {
-            Chip("‹", onPrev); Chip("Heute", onToday); Chip("›", onNext); Chip(if (weekView) "Tag" else "Woche", onToggle)
-            Chip(when (wd) { 1 -> "BG: 1 Tag"; 3 -> "BG: 3 Tage"; else -> "BG: Woche" }) {
+            Chip(look, "‹", onClick = onPrev); Chip(look, "Heute", onClick = onToday); Chip(look, "›", onClick = onNext)
+            Chip(look, if (weekView) "Tag" else "Woche", onClick = onToggle)
+            Chip(look, "Aussehen", selected = true, onClick = onLook)
+            Chip(look, when (wd) { 1 -> "BG: 1 Tag"; 3 -> "BG: 3 Tage"; else -> "BG: Woche" }) {
                 wd = when (wd) { 1 -> 3; 3 -> 7; else -> 1 }
                 ctx.getSharedPreferences("woche", 0).edit().putInt("wall_days", wd).apply()
             }
-            Chip("Festlegen") { setWallpaper(ctx) }
+            Chip(look, "Festlegen") { setWallpaper(ctx) }
         }
     }
 }
 
 @Composable
-private fun Chip(text: String, onClick: () -> Unit) {
-    Box(Modifier.padding(start = 6.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-        .background(Panel).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp)) {
-        Text(text, color = Fg, fontSize = 14.sp)
+private fun Chip(look: Look, text: String, selected: Boolean = false, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(if (look.frame == Frame.ROUND) 8.dp else 3.dp)
+    Box(Modifier.padding(end = 6.dp).clip(shape)
+        .background(if (selected) Color(alphaOf(look.theme.accent, 0.22f)) else Color(alphaOf(look.theme.panel, 0.85f)))
+        .border(1.dp, Color(alphaOf(look.theme.accent, if (selected) 0.9f else 0.35f)), shape)
+        .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Text(cap(look, text), color = Color(if (selected) look.theme.accent else look.theme.text), fontSize = 14.sp,
+            fontFamily = fontFamily(look))
     }
 }
 
 @Composable
-private fun NowCard(events: List<Ev>, now: LocalDateTime) {
-    val nowMs = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+private fun NowCard(look: Look, events: List<Ev>) {
+    val nowMs = System.currentTimeMillis()
     val cur = events.filter { it.startMs <= nowMs && it.endMs > nowMs && it.cat != Cat.SLEEP }.maxByOrNull { it.startMs }
     val next = events.filter { it.startMs > nowMs }.minByOrNull { it.startMs }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(Panel).padding(12.dp)) {
-        Text("JETZT", color = Mute, fontSize = 11.sp, letterSpacing = 1.sp)
-        Text(cur?.title ?: "Frei", color = Fg, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    val ff = fontFamily(look)
+    val shape = RoundedCornerShape(if (look.frame == Frame.ROUND) 10.dp else 4.dp)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(shape)
+        .background(Color(alphaOf(look.theme.panel, 0.88f)))
+        .border(1.dp, Color(alphaOf(look.theme.accent, 0.5f)), shape).padding(12.dp)) {
+        Text(cap(look, if (look.caps) "[ Jetzt ]" else "Jetzt"), color = Color(look.theme.accent), fontSize = 11.sp,
+            letterSpacing = 1.sp, fontFamily = ff)
+        Text(cap(look, cur?.let { shortTitle(it.title, false) } ?: "Frei"), color = Color(look.theme.text), fontSize = 18.sp,
+            fontWeight = FontWeight.Bold, fontFamily = ff)
         if (cur != null) {
-            Text("${hm(cur.startMs)}–${hm(cur.endMs)}", color = Mute, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+            Text("${hm(cur.startMs)}–${hm(cur.endMs)}", color = Color(look.theme.mute), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().height(4.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(Line)) {
-                Box(Modifier.fillMaxWidth(((nowMs - cur.startMs).toFloat() / (cur.endMs - cur.startMs)).coerceIn(0f, 1f)).height(4.dp).background(NowRed))
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(look.theme.line))) {
+                Box(Modifier.fillMaxWidth(((nowMs - cur.startMs).toFloat() / (cur.endMs - cur.startMs)).coerceIn(0f, 1f))
+                    .height(4.dp).background(Color(look.theme.now)))
             }
         }
-        if (next != null) Text("Danach ${hm(next.startMs)}: ${next.title}", color = Mute, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (next != null) Text("Danach ${hm(next.startMs)}: ${shortTitle(next.title, false)}", color = Color(look.theme.mute),
+            fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = ff)
     }
     Spacer(Modifier.height(8.dp))
 }
@@ -139,32 +184,24 @@ private fun hm(ms: Long): String {
 }
 
 @Composable
-private fun Timeline(days: List<LocalDate>, events: List<Ev>, now: LocalDateTime, weekView: Boolean) {
-    val colW = if (weekView) 112.dp else 0.dp
-    val vScroll = rememberScrollState(((LocalDateTime.now().hour - START_H - 1).coerceAtLeast(0) * 48 * 2.6f).toInt())
-    val hScroll = rememberScrollState()
-    Column(Modifier.fillMaxSize()) {
-        if (weekView) {
-            Row(Modifier.horizontalScroll(hScroll)) {
-                Spacer(Modifier.width(40.dp))
-                days.forEach { d ->
-                    val today = d == LocalDate.now()
-                    Text("${d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.GERMAN)} ${d.dayOfMonth}",
-                        color = if (today) NowRed else Mute, fontSize = 12.sp, fontWeight = if (today) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.width(colW).padding(vertical = 6.dp, horizontal = 6.dp))
-                }
-            }
-        }
-        Row(Modifier.fillMaxSize().verticalScroll(vScroll)) {
-            Column(Modifier.width(40.dp)) {
-                for (h in START_H until END_H) Box(Modifier.height(HOUR_H)) {
-                    Text("%02d".format(h), color = Mute, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(start = 8.dp))
-                }
-            }
-            val body = if (weekView) Modifier.horizontalScroll(hScroll) else Modifier.weight(1f)
-            Row(body) {
-                days.forEach { d ->
-                    DayColumn(d, events, now, if (weekView) Modifier.width(colW) else Modifier.fillMaxWidth().weight(1f))
+private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean, look: Look, s: Float, tick: Int) {
+    val density = LocalDensity.current
+    val vScroll = rememberScrollState()
+    LaunchedEffect(Unit) {
+        val px = with(density) { HOUR_H.toPx() } * (LocalDateTime.now().hour - T0 - 1).coerceAtLeast(0)
+        vScroll.scrollTo(px.toInt())
+    }
+    val headDp = if (weekView) 26.dp else 0.dp
+    val headPx = with(density) { headDp.toPx() }
+    val totalH = HOUR_H * (T1 - T0) + headDp
+    Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {
+        val draw: Modifier = if (weekView) Modifier.width(30.dp + 130.dp * 7).height(totalH) else Modifier.fillMaxWidth().height(totalH)
+        Box(if (weekView) Modifier.horizontalScroll(rememberScrollState()) else Modifier) {
+            Canvas(draw) {
+                val t = tick
+                drawIntoCanvas {
+                    Renderer.schedule(it.nativeCanvas, 0f, 0f, size.width - 8f, size.height, days, events, T0, T1, look, s,
+                        compact = weekView, headH = headPx, skipSleep = false)
                 }
             }
         }
@@ -172,27 +209,75 @@ private fun Timeline(days: List<LocalDate>, events: List<Ev>, now: LocalDateTime
 }
 
 @Composable
-private fun DayColumn(day: LocalDate, events: List<Ev>, now: LocalDateTime, modifier: Modifier) {
-    val placed = remember(day, events) { placeDay(events, day) }
-    BoxWithConstraints(modifier.height(HOUR_H * (END_H - START_H)).background(if (day == LocalDate.now()) Color(0xFF13161F) else Bg)) {
-        for (h in 0 until END_H - START_H) Box(Modifier.offset(y = HOUR_H * h).fillMaxWidth().height(1.dp).background(Line))
-        val pxPerMin = HOUR_H / 60
-        placed.forEach { p ->
-            val from = (p.fromMin - START_H * 60).coerceAtLeast(0)
-            val to = (p.toMin - START_H * 60).coerceAtMost((END_H - START_H) * 60)
-            if (to <= from) return@forEach
-            val w = maxWidth / p.cols
-            Column(Modifier.offset(x = w * p.col, y = pxPerMin * from).width(w).height((pxPerMin * (to - from)).coerceAtLeast(16.dp))
-                .padding(1.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                .background(Color(p.ev.cat.bg)).padding(horizontal = 5.dp, vertical = 2.dp)) {
-                Text(p.ev.title, color = Color(p.ev.cat.fg), fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 13.sp)
-                if (to - from >= 40) Text("${hm(p.ev.startMs)}–${hm(p.ev.endMs)}", color = Color(p.ev.cat.fg).copy(alpha = .75f), fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+private fun LookScreen(look: Look, s: Float, onChange: () -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val ff = fontFamily(look)
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())
+        .padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Chip(look, "‹ Zurück", onClick = onBack)
+            Spacer(Modifier.width(8.dp))
+            Text(cap(look, "Aussehen"), color = Color(look.theme.text), fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = ff)
+        }
+        Section(look, "Stil")
+        THEMES.forEach { t ->
+            val preview = Look.of(t, look.fill)
+            val selected = t.id == look.theme.id
+            val shape = RoundedCornerShape(10.dp)
+            Column(Modifier.fillMaxWidth().clip(shape)
+                .border(if (selected) 2.dp else 1.dp, Color(if (selected) t.accent else look.theme.line), shape)
+                .clickable { LookStore.setTheme(ctx, t.id); onChange() }) {
+                Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                    drawIntoCanvas {
+                        Renderer.background(it.nativeCanvas, size.width, size.height, preview, s)
+                        Renderer.preview(it.nativeCanvas, size.width, size.height, preview, s)
+                    }
+                }
+                Column(Modifier.fillMaxWidth().background(Color(t.panel)).padding(10.dp)) {
+                    Text((if (selected) "✓ " else "") + cap(preview, t.name), color = Color(t.text), fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp, fontFamily = fontFamily(preview))
+                    Text(t.tagline, color = Color(t.mute), fontSize = 12.sp)
+                }
             }
         }
-        if (day == now.toLocalDate()) {
-            val m = now.hour * 60 + now.minute - START_H * 60
-            if (m in 0..(END_H - START_H) * 60) Box(Modifier.offset(y = pxPerMin * m).fillMaxWidth().height(2.dp).background(NowRed))
-        }
+        Section(look, "Rahmen")
+        Options(look, Frame.values().map { it.label }, look.frame.ordinal) { LookStore.put(ctx, "frame", Frame.values()[it].name); onChange() }
+        Section(look, "Schrift")
+        Options(look, FontStyle.values().map { it.label }, look.font.ordinal) { LookStore.put(ctx, "font", FontStyle.values()[it].name); onChange() }
+        Section(look, "Effekt im Hintergrund")
+        Options(look, Fx.values().map { it.label }, look.fx.ordinal) { LookStore.put(ctx, "fx", Fx.values()[it].name); onChange() }
+        Toggle(look, "Leuchten", look.glow) { LookStore.putBool(ctx, "glow", it); onChange() }
+        Toggle(look, "Großbuchstaben", look.caps) { LookStore.putBool(ctx, "caps", it); onChange() }
+        Section(look, "Farbstärke der Blöcke")
+        Slider(value = look.fill, onValueChange = { LookStore.putFloat(ctx, "fill", it); onChange() }, valueRange = 0.08f..0.45f,
+            colors = SliderDefaults.colors(thumbColor = Color(look.theme.accent), activeTrackColor = Color(look.theme.accent),
+                inactiveTrackColor = Color(look.theme.line)))
+        Chip(look, "Als Hintergrund festlegen", selected = true) { setWallpaper(ctx) }
+        Text("Gilt für App, Hintergrund und Widget. Ein neuer Stil setzt Rahmen, Schrift, Effekt, Leuchten und Großbuchstaben auf seine Vorgaben zurück.",
+            color = Color(look.theme.mute), fontSize = 12.sp)
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun Section(look: Look, text: String) {
+    Text(cap(look, text), color = Color(look.theme.accent), fontSize = 12.sp, letterSpacing = 1.sp, fontFamily = fontFamily(look))
+}
+
+@Composable
+private fun Options(look: Look, labels: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        labels.forEachIndexed { i, l -> Chip(look, l, selected = i == selected) { onPick(i) } }
+    }
+}
+
+@Composable
+private fun Toggle(look: Look, label: String, value: Boolean, onSet: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(cap(look, label), color = Color(look.theme.text), fontSize = 15.sp, fontFamily = fontFamily(look), modifier = Modifier.weight(1f))
+        Switch(checked = value, onCheckedChange = onSet, colors = SwitchDefaults.colors(
+            checkedThumbColor = Color(look.theme.bgTop), checkedTrackColor = Color(look.theme.accent),
+            uncheckedThumbColor = Color(look.theme.mute), uncheckedTrackColor = Color(look.theme.panel)))
     }
 }
 

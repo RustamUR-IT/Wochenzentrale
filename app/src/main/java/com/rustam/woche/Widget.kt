@@ -25,15 +25,16 @@ class TodayWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val today = LocalDate.now()
         val now = System.currentTimeMillis()
+        val look = LookStore.load(context)
         val evs = CalendarRepo.load(context, today, today.plusDays(1))
             .filter { it.endMs > now && it.cat != Cat.SLEEP }.sortedBy { it.startMs }.take(8)
         provideContent {
-            Column(GlanceModifier.fillMaxSize().background(ColorProvider(Color(0xFF0F1117))).padding(10.dp)) {
-                Text("HEUTE", style = TextStyle(color = ColorProvider(Color(0xFF8A91A5)), fontSize = 11.sp))
-                if (evs.isEmpty()) Text("Nichts mehr geplant", style = TextStyle(color = ColorProvider(Color(0xFFE8EAF0)), fontSize = 14.sp))
+            Column(GlanceModifier.fillMaxSize().background(ColorProvider(Color(look.theme.bgBottom))).padding(10.dp)) {
+                Text(if (look.caps) "[ HEUTE ]" else "Heute", style = TextStyle(color = ColorProvider(Color(look.theme.accent)), fontSize = 11.sp))
+                if (evs.isEmpty()) Text("Nichts mehr geplant", style = TextStyle(color = ColorProvider(Color(look.theme.text)), fontSize = 14.sp))
                 evs.forEach {
-                    Text("${hmz(it.startMs)}  ${it.title}", maxLines = 1,
-                        style = TextStyle(color = ColorProvider(Color(it.cat.fg)), fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                    Text("${hmz(it.startMs)}  ${shortTitle(it.title, false)}", maxLines = 1,
+                        style = TextStyle(color = ColorProvider(Color(look.fg(it.cat))), fontSize = 13.sp, fontWeight = FontWeight.Medium))
                 }
             }
         }
