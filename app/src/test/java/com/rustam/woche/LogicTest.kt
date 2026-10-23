@@ -129,4 +129,12 @@ class LogicTest {
         assertTrue(day != mon.plusDays(1))
         assertEquals(MakeUpKind.RUN, makeUpKind(missed))
     }
+
+    @Test fun importantBlocks() {
+        assertTrue(isImportant("🎯 PRÜFUNG Mathe: Test 1"))
+        assertTrue(isImportant("📚 Mathe: Make-up Thema 2"))
+        assertTrue(isImportant("📚 Mathe: Mock test before Mathe test"))
+        assertFalse(isImportant("📚 Mathe: Thema 4 Relationen"))
+        assertFalse(isImportant("🏋️ Gym A"))
+    }
 }

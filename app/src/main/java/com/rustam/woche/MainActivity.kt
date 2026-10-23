@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -274,6 +275,10 @@ private fun hm(ms: Long): String {
 @Composable
 private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean, look: Look, s: Float, tick: Int, onTap: (Ev) -> Unit) {
     val hits = remember { mutableListOf<Pair<android.graphics.RectF, Ev>>() }
+    val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "now").animateFloat(
+        initialValue = 0.35f, targetValue = 1f, label = "pulse",
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1400), androidx.compose.animation.core.RepeatMode.Reverse))
     val density = LocalDensity.current
     val vScroll = rememberScrollState()
     LaunchedEffect(Unit) {
@@ -293,7 +298,7 @@ private fun Timeline(days: List<LocalDate>, events: List<Ev>, weekView: Boolean,
                 hits.clear()
                 drawIntoCanvas {
                     Renderer.schedule(it.nativeCanvas, 0f, 0f, size.width - 8f, size.height, days, events, T0, T1, look, s,
-                        compact = weekView, headH = headPx, skipSleep = false, hits = hits)
+                        compact = weekView, headH = headPx, skipSleep = false, hits = hits, pulse = pulse)
                 }
             }
         }

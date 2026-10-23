@@ -36,6 +36,13 @@ private fun hmOf(ms: Long): String {
 }
 
 /** Zeichnet Hintergrund, Raster und Blöcke. Wird von App, Hintergrundbild und Vorschau gemeinsam benutzt. */
+val SILVER = 0xFFC9CED6
+
+private val importantRe = Regex("(?i)make-up|mock|probetest|mündlich|muendlich")
+
+/** Prüfungen, Fristen, Nachholblöcke und Probetests werden hervorgehoben. */
+fun isImportant(title: String): Boolean = isExamTitle(title) || importantRe.containsMatchIn(title)
+
 object Renderer {
     private val DN = arrayOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
@@ -124,8 +131,9 @@ object Renderer {
         c: Canvas, x: Float, y: Float, w: Float, h: Float,
         days: List<LocalDate>, evs: List<Ev>, t0: Int, t1: Int,
         l: Look, s: Float, compact: Boolean, headH: Float, skipSleep: Boolean,
-        hits: MutableList<Pair<RectF, Ev>>? = null,
+        hits: MutableList<Pair<RectF, Ev>>? = null, pulse: Float = 1f,
     ) {
+        val nowMs = System.currentTimeMillis()
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         val labelW = 54f * s
         val left = x + labelW; val right = x + w
@@ -157,7 +165,6 @@ object Renderer {
                 }
             }
             for (pl in placeDay(evs, d)) {
-                if (skipSleep && pl.ev.cat == Cat.SLEEP) continue
                 val a2 = (pl.fromMin / 60f).coerceAtLeast(t0.toFloat())
                 val b2 = (pl.toMin / 60f).coerceAtMost(t1.toFloat())
                 if (b2 <= a2) continue
@@ -165,9 +172,21 @@ object Renderer {
                 val y0 = top + (a2 - t0) * ph + 1.5f
                 val y1 = top + (b2 - t0) * ph - 1.5f
                 val r = RectF(cx + pl.col * cw + 2f, y0, cx + (pl.col + 1) * cw - 2f, y1)
-                block(c, r, pl.ev.title, "${hmOf(pl.ev.startMs)}–${hmOf(pl.ev.endMs)}", pl.ev.cat, l, s, compact, tp, p)
+                if (isPointDeadline(pl.ev)) continue
+                val isNow = pl.ev.startMs <= nowMs && nowMs < pl.ev.endMs && pl.ev.cat != Cat.SLEEP
+                block(c, r, pl.ev.title, "${hmOf(pl.ev.startMs)}–${hmOf(pl.ev.endMs)}", pl.ev.cat, l, s, compact, tp, p,
+                    isNow = isNow, isPast = pl.ev.endMs < nowMs, pulse = pulse)
                 hits?.add(RectF(r) to pl.ev)
             }
+        }
+        // Moodle-Fristen als Markierungslinie
+        days.forEachIndexed { di, d ->
+            evs.filter { isPointDeadline(it) && java.time.Instant.ofEpochMilli(it.startMs).atZone(ZoneId.systemDefault()).toLocalDate() == d }
+                .forEach { e ->
+                    val mm = minutesOfDay(e.startMs) / 60f
+                    val hh = if (mm == 0f) 0f else mm
+                    if (hh >= t0 && hh <= t1) deadlineMarker(c, left + di * colW, left + (di + 1) * colW, top + (hh - t0) * ph, e.title, l, s)
+                }
         }
         val n = LocalDateTime.now(); val m = n.hour + n.minute / 60f
         val ti = days.indexOf(today)
@@ -213,8 +232,11 @@ object Renderer {
 
     /** Ein Termin-Block im gewählten Rahmenstil. Wächst bei Bedarf auf eine Textzeile Mindesthöhe. */
     fun block(c: Canvas, r0: RectF, rawTitle: String, time: String?, cat: Cat, l: Look, s: Float, compact: Boolean,
-              tp: TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG), p: Paint = Paint(Paint.ANTI_ALIAS_FLAG)) {
-        val fg = l.colorFor(rawTitle, cat)
+              tp: TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG), p: Paint = Paint(Paint.ANTI_ALIAS_FLAG),
+              isNow: Boolean = false, isPast: Boolean = false, pulse: Float = 1f) {
+        val sleep = cat == Cat.SLEEP
+        val important = !sleep && isImportant(rawTitle)
+        val fg = if (sleep) SILVER else l.colorFor(rawTitle, cat)
         val padX = 9f * s; val padY = 6f * s
         val tw = (r0.width() - padX - 6f * s).toInt()
         if (tw < 12) return
@@ -231,15 +253,25 @@ object Renderer {
         val r = RectF(r0.left, r0.top, r0.right, maxOf(r0.bottom, r0.top + lineH + 2 * padY))
         val rad = when (l.frame) { Frame.ROUND -> 10f * s; Frame.BRACKETS -> 3f * s; Frame.ENGRAVED -> 5f * s }
 
-        if (l.glow) {
+        if (sleep) {
+            // Schlaf: komplett schwarz mit feinem Silberrand
+            p.style = Paint.Style.FILL; p.color = 0xFF000000.toInt(); c.drawRoundRect(r, rad, rad, p)
+            p.style = Paint.Style.STROKE; p.strokeWidth = 1.2f * s; p.color = alphaOf(SILVER, 0.55f); c.drawRoundRect(r, rad, rad, p)
+            p.style = Paint.Style.FILL
+        }
+        if (!sleep && (l.glow || important || isNow)) {
+            val g = if (isNow) l.theme.text else if (important) l.theme.now else fg
+            val k = if (isNow || important) 1.8f * pulse else 1f
             p.style = Paint.Style.STROKE
-            p.strokeWidth = 8f * s; p.color = alphaOf(fg, 0.08f); c.drawRoundRect(r, rad, rad, p)
-            p.strokeWidth = 4f * s; p.color = alphaOf(fg, 0.16f); c.drawRoundRect(r, rad, rad, p)
+            p.strokeWidth = 10f * s; p.color = alphaOf(g, 0.10f * k); c.drawRoundRect(r, rad, rad, p)
+            p.strokeWidth = 5f * s; p.color = alphaOf(g, 0.20f * k); c.drawRoundRect(r, rad, rad, p)
         }
         p.style = Paint.Style.FILL
-        p.color = mixOf(l.theme.panel, fg, l.fill)
-        c.drawRoundRect(r, rad, rad, p)
-        when (l.frame) {
+        if (!sleep) {
+            p.color = mixOf(l.theme.panel, fg, if (isNow) minOf(l.fill + 0.15f, 0.6f) else l.fill)
+            c.drawRoundRect(r, rad, rad, p)
+        }
+        if (!sleep) when (l.frame) {
             Frame.ROUND -> {
                 p.color = fg.toInt()
                 c.drawRect(r.left, r.top + 4f * s, r.left + 4f * s, r.bottom - 4f * s, p)
@@ -269,6 +301,14 @@ object Renderer {
             }
         }
         p.style = Paint.Style.FILL
+        if (important) {
+            p.style = Paint.Style.STROKE; p.strokeWidth = 2.5f * s; p.color = l.theme.now.toInt(); c.drawRoundRect(r, rad, rad, p)
+            p.style = Paint.Style.FILL
+        }
+        if (isNow) {
+            p.style = Paint.Style.STROKE; p.strokeWidth = 3f * s; p.color = alphaOf(l.theme.text, 0.6f + 0.4f * pulse); c.drawRoundRect(r, rad, rad, p)
+            p.style = Paint.Style.FILL
+        }
 
         val text = title + if (time != null && r.height() > lineH * 4) "\n$time" else ""
         val st = statusOf(rawTitle)
@@ -299,6 +339,34 @@ object Renderer {
             }
             p.style = Paint.Style.FILL
         }
+        if (isPast && !sleep) { p.color = alphaOf(0xFF000000, 0.38f); c.drawRoundRect(r, rad, rad, p) }
+        if (isNow && r.width() > 60f * s) {
+            val tag = if (l.caps) "JETZT" else "Jetzt"
+            val tpp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = typeface(l, true); textSize = 18f * s; color = 0xFF000000.toInt() }
+            val tw2 = tpp.measureText(tag) + 14f * s; val th = 26f * s
+            val tr = RectF(r.right - tw2 - 6f * s, r.top - th / 2, r.right - 6f * s, r.top + th / 2)
+            p.color = l.theme.text.toInt(); c.drawRoundRect(tr, th / 2, th / 2, p)
+            c.drawText(tag, tr.left + 7f * s, tr.centerY() + 6.5f * s, tpp)
+        } else if (important && st == Status.OPEN && r.height() > 30f * s) {
+            val bs = minOf(24f * s, r.height() - 4f)
+            p.color = l.theme.now.toInt(); c.drawCircle(r.right - bs / 2 - 5f * s, r.top + bs / 2 + 4f * s, bs / 2, p)
+            val tpp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT_BOLD; textSize = bs * 0.8f; color = 0xFF000000.toInt(); textAlign = Paint.Align.CENTER }
+            c.drawText("!", r.right - bs / 2 - 5f * s, r.top + bs * 0.78f + 4f * s, tpp)
+        }
+    }
+
+    /** Moodle-Fristen ohne Dauer: rote Markierungslinie mit Fähnchen. */
+    fun deadlineMarker(c: Canvas, x0: Float, x1: Float, y: Float, title: String, l: Look, s: Float) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = l.theme.now.toInt(); strokeWidth = 2.5f * s; pathEffect = android.graphics.DashPathEffect(floatArrayOf(8f * s, 5f * s), 0f) }
+        c.drawLine(x0, y, x1, y, p)
+        p.pathEffect = null; p.style = Paint.Style.FILL
+        val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = typeface(l, true); textSize = 18f * s; color = 0xFF000000.toInt() }
+        var t = "⚑ " + shortTitle(title, true); if (l.caps) t = t.uppercase()
+        val maxW = x1 - x0 - 6f * s
+        val txt = TextUtils.ellipsize(t, tp, maxW - 12f * s, TextUtils.TruncateAt.END).toString()
+        val r = RectF(x0 + 2f * s, y - 13f * s, x0 + 2f * s + tp.measureText(txt) + 12f * s, y + 13f * s)
+        c.drawRoundRect(r, 6f * s, 6f * s, p)
+        c.drawText(txt, r.left + 6f * s, r.centerY() + 6f * s, tp)
     }
 
     /** Drei Beispielblöcke für die Stil-Vorschau im Aussehen-Menü. */
