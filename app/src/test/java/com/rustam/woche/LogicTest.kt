@@ -40,4 +40,10 @@ class LogicTest {
         assertEquals(LocalDate.of(2026, 10, 26), mondayOf(LocalDate.of(2026, 10, 25 + 1)))
         assertEquals(LocalDate.of(2026, 10, 26), mondayOf(LocalDate.of(2026, 11, 1)))
     }
+
+    @Test fun shortensTitles() {
+        assertEquals("Mathe: T2 Zahlenmengen", shortTitle("📚 Mathe: Thema 2 Zahlenmengen", true))
+        assertEquals("Run 3.7 km", shortTitle("✓ Run 3.7 km", false))
+        assertEquals("MACS1-ILV", shortTitle("MACS1-ILV", true))
+    }
 }

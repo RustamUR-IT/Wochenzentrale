@@ -79,3 +79,19 @@ fun placeDay(events: List<Ev>, day: LocalDate, zone: ZoneId = ZoneId.systemDefau
 }
 
 fun mondayOf(d: LocalDate): LocalDate = d.minusDays(((d.dayOfWeek.value + 6) % 7).toLong())
+
+/** Kürzt Titel für schmale Spalten: Emoji, Haken und Füllwörter weg. */
+fun shortTitle(title: String, compact: Boolean): String {
+    var t = title.trim()
+    t = t.replace(Regex("^[^\\p{L}\\p{N}]+"), "")
+    if (compact) {
+        t = t.replace(Regex("\\s*·\\s*"), " ")
+            .replace("Mathematik für Computer Science", "Mathe")
+            .replace("Mathe für Informatik", "Mathe")
+            .replace("Thema ", "T")
+            .replace("Prozedurale Sprachen", "C")
+            .replace("Datenmanagement", "DB")
+            .replace("Webtechnologien", "Web")
+    }
+    return t.ifBlank { title }
+}
