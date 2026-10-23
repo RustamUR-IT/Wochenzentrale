@@ -72,20 +72,31 @@ class WocheWallpaper : WallpaperService() {
                     val a2 = (pl.fromMin / 60f).coerceAtLeast(t0.toFloat()); val b2 = (pl.toMin / 60f).coerceAtMost(t1.toFloat())
                     if (b2 <= a2) continue
                     val cw = colW / pl.cols
-                    val r = RectF(cx + pl.col * cw + 2f, top + (a2 - t0) * ph + 1.5f, cx + (pl.col + 1) * cw - 2f, top + (b2 - t0) * ph - 1.5f)
-                    p.color = pl.ev.cat.bg.toInt(); c.drawRoundRect(r, 10f * s, 10f * s, p)
-                    p.color = pl.ev.cat.fg.toInt(); c.drawRect(r.left, r.top + 4f * s, r.left + 4f * s, r.bottom - 4f * s, p)
                     val padX = 9f * s; val padY = 6f * s
-                    val tw = (r.width() - padX - 4f * s).toInt()
+                    val tw = (cw - 4f - padX - 4f * s).toInt()
                     if (tw < 12) continue
                     tp.color = pl.ev.cat.fg.toInt()
-                    tp.textSize = (if (small) 25f else 32f) * s
-                    val text = shortTitle(pl.ev.title, small) + if (r.height() > (if (small) 120f else 110f) * s) "\n${hm(pl.ev.startMs)}–${hm(pl.ev.endMs)}" else ""
+                    val title = shortTitle(pl.ev.title, small)
+                    // Schrift so wählen, dass das längste Wort in eine Zeile passt (keine Trennung mitten im Wort)
+                    var size = (if (small) 25f else 32f) * s
+                    val minSize = (if (small) 17f else 22f) * s
+                    val longest = title.split(Regex("\\s+")).maxByOrNull { it.length } ?: title
+                    tp.textSize = size
+                    while (size > minSize && tp.measureText(longest) > tw) { size -= 1f * s; tp.textSize = size }
                     val lineH = tp.textSize * 1.15f
+                    // Mindesthöhe: eine Textzeile, damit kurze Blöcke lesbar bleiben
+                    val y0 = top + (a2 - t0) * ph + 1.5f
+                    val y1 = maxOf(top + (b2 - t0) * ph - 1.5f, y0 + lineH + 2 * padY)
+                    val r = RectF(cx + pl.col * cw + 2f, y0, cx + (pl.col + 1) * cw - 2f, y1)
+                    p.color = pl.ev.cat.bg.toInt(); c.drawRoundRect(r, 10f * s, 10f * s, p)
+                    p.color = pl.ev.cat.fg.toInt(); c.drawRect(r.left, r.top + 4f * s, r.left + 4f * s, r.bottom - 4f * s, p)
+                    val text = title + if (r.height() > lineH * 4) "\n${hm(pl.ev.startMs)}–${hm(pl.ev.endMs)}" else ""
                     val maxLines = ((r.height() - padY) / lineH).toInt().coerceAtLeast(1)
                     val layout = StaticLayout.Builder.obtain(text, 0, text.length, tp, tw)
                         .setMaxLines(maxLines).setEllipsize(TextUtils.TruncateAt.END)
-                        .setLineSpacing(0f, 1f).setIncludePad(false).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE)
+                        .setLineSpacing(0f, 1f).setIncludePad(false)
+                        .setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE)
+                        .setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE)
                         .build()
                     c.save(); c.clipRect(r); c.translate(r.left + padX, r.top + padY)
                     layout.draw(c); c.restore()

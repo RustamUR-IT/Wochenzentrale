@@ -44,6 +44,8 @@ class LogicTest {
     @Test fun shortensTitles() {
         assertEquals("Mathe: T2 Zahlenmengen", shortTitle("📚 Mathe: Thema 2 Zahlenmengen", true))
         assertEquals("Run 3.7 km", shortTitle("✓ Run 3.7 km", false))
-        assertEquals("MACS1-ILV", shortTitle("MACS1-ILV", true))
+        assertEquals("MACS1 ILV", shortTitle("MACS1-ILV", true))
+        assertEquals("MACS1 ILV HS_A3.14", shortTitle("MACS1-ILV HS_A3.14 - BIF-1L2", true))
+        assertEquals("PROZD LAB EDV_F4.24", shortTitle("PROZD-LAB EDV_F4.24 - BIF-1L2", false))
     }
 }

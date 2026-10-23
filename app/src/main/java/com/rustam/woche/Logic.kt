@@ -84,6 +84,9 @@ fun mondayOf(d: LocalDate): LocalDate = d.minusDays(((d.dayOfWeek.value + 6) % 7
 fun shortTitle(title: String, compact: Boolean): String {
     var t = title.trim()
     t = t.replace(Regex("^[^\\p{L}\\p{N}]+"), "")
+    // FH-Termine: "MACS1-ILV HS_A3.14 - BIF-1L2" -> "MACS1 ILV HS_A3.14" (Gruppe ist immer gleich)
+    t = t.replace(Regex("\\s*-\\s*BIF-\\w+"), "")
+        .replace(Regex("^([A-Z0-9]{3,})-(ILV|LAB|VO|UE|SE)\\b"), "$1 $2")
     if (compact) {
         t = t.replace(Regex("\\s*·\\s*"), " ")
             .replace("Mathematik für Computer Science", "Mathe")
