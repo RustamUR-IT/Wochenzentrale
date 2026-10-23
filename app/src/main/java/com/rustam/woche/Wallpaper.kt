@@ -11,6 +11,9 @@ import java.time.LocalDate
 class WocheWallpaper : WallpaperService() {
     override fun onCreateEngine(): Engine = object : Engine() {
         private val handler = Handler(Looper.getMainLooper())
+        private var tapPages = 0          // per Tippen geblättert
+        private var launcherPage = 0      // per Homescreen-Seite geblättert
+        private val resetToToday = Runnable { if (tapPages != 0) { tapPages = 0; draw() } }
         private var visible = false
         private val tick = object : Runnable { override fun run() { draw(); if (visible) handler.postDelayed(this, 60_000) } }
         override fun onVisibilityChanged(v: Boolean) { visible = v; handler.removeCallbacks(tick); if (v) tick.run() }
@@ -20,8 +23,31 @@ class WocheWallpaper : WallpaperService() {
         }
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
+            if (android.os.Build.VERSION.SDK_INT >= 30) setOffsetNotificationsEnabled(true)
             try { contentResolver.registerContentObserver(android.provider.CalendarContract.CONTENT_URI, true, observer) } catch (_: Exception) {}
         }
+        // Tippen auf freie Stelle des Startbildschirms: rechts vor, links zurück, Mitte = heute
+        override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: android.os.Bundle?, resultRequested: Boolean): android.os.Bundle? {
+            if (action == android.app.WallpaperManager.COMMAND_TAP && !isPreview) {
+                val w = surfaceHolder.surfaceFrame.width().coerceAtLeast(1)
+                tapPages = when {
+                    x > w * 2 / 3 -> tapPages + 1
+                    x < w / 3 -> tapPages - 1
+                    else -> 0
+                }
+                handler.removeCallbacks(resetToToday)
+                handler.postDelayed(resetToToday, 45_000)
+                draw()
+            }
+            return null
+        }
+
+        // Wischen zwischen Homescreen-Seiten: jede Seite eine Woche weiter
+        override fun onOffsetsChanged(xOffset: Float, yOffset: Float, xStep: Float, yStep: Float, xPixels: Int, yPixels: Int) {
+            val page = if (xStep > 0f && xStep < 1f) Math.round(xOffset / xStep) else 0
+            if (page != launcherPage) { launcherPage = page; draw() }
+        }
+
         override fun onDestroy() { handler.removeCallbacks(tick); contentResolver.unregisterContentObserver(observer) }
 
         private fun draw() {
@@ -37,8 +63,9 @@ class WocheWallpaper : WallpaperService() {
             Renderer.background(c, w, h, look, s)
             val today = LocalDate.now()
             val nDays = applicationContext.getSharedPreferences("woche", 0).getInt("wall_days", 1).coerceIn(1, 7)
-            val days = if (nDays == 7) { val m = mondayOf(today); (0..6).map { m.plusDays(it.toLong()) } }
-                else (0 until nDays).map { today.plusDays(it.toLong()) }
+            val shift = ((tapPages + launcherPage) * nDays).toLong()
+            val days = if (nDays == 7) { val m = mondayOf(today).plusDays(shift); (0..6).map { m.plusDays(it.toLong()) } }
+                else (0 until nDays).map { today.plusDays(shift + it) }
             val evs = CalendarRepo.load(applicationContext, days.first(), days.last().plusDays(1))
             val skip = nDays > 1
             val (t0, t1) = Renderer.hourRange(evs, days, skip)
