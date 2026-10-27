@@ -54,6 +54,11 @@ DEFAULT_CONFIG = {
     "by_subject": True,
     "monitors": ["week", "3days"],
     "refresh_minutes": 10,
+    "_raender": "Abstand in Pixeln (bezogen auf 1080p): oben Platz für die Seelen-Toolbar, unten für das Dock.",
+    "margin_top": 60,
+    "margin_bottom": 120,
+    "margin_left": 40,
+    "margin_right": 40,
     "calendars": [
         {"name": "Mein Kalender", "kind": "own", "url": ""},
         {"name": "FH-Stundenplan", "kind": "fh", "url": ""},
@@ -764,7 +769,7 @@ def draw_schedule(im: Image.Image, area: tuple, days: list[dt.date], evs: list[E
             d.ellipse((left + ti * col_w - r, yy - r, left + ti * col_w + r, yy + r), fill=rgba(t.now))
 
 
-def render_monitor(im: Image.Image, rect: tuple, layout: str, evs: list[Ev], lk: Look, now: dt.datetime):
+def render_monitor(im: Image.Image, rect: tuple, layout: str, evs: list[Ev], lk: Look, now: dt.datetime, cfg: dict | None = None):
     x, y, w, h = rect
     s = min(w / 1920, h / 1080) * 1.0
     today = now.date()
@@ -778,8 +783,10 @@ def render_monitor(im: Image.Image, rect: tuple, layout: str, evs: list[Ev], lk:
     else:
         days = [today + dt.timedelta(days=i) for i in range(3)]
         title = f"Heute und die nächsten 2 Tage"
-    margin_x, margin_top, margin_bottom = 40 * s, 36 * s, 70 * s  # unten Platz für die Taskleiste
-    draw_schedule(im, (x + margin_x, y + margin_top, w - 2 * margin_x, h - margin_top - margin_bottom), days, evs, lk, s, now, title)
+    cfg = cfg or {}
+    m = lambda k, d: float(cfg.get(k, d)) * s
+    ml, mr, mt, mb = m("margin_left", 40), m("margin_right", 40), m("margin_top", 60), m("margin_bottom", 120)
+    draw_schedule(im, (x + ml, y + mt, w - ml - mr, h - mt - mb), days, evs, lk, s, now, title)
 
 
 # ------------------------------------------------------------------------------------------------ Windows
@@ -834,7 +841,7 @@ def render_all(cfg: dict, evs: list[Ev], now: dt.datetime, mons: list[tuple]) ->
         part = Image.new("RGB", (mw, mh))
         s = min(mw / 1920, mh / 1080)
         background(part, lk, s)
-        render_monitor(part, (0, 0, mw, mh), layouts[i] if i < len(layouts) else layouts[-1], evs, lk, now)
+        render_monitor(part, (0, 0, mw, mh), layouts[i] if i < len(layouts) else layouts[-1], evs, lk, now, cfg)
         im.paste(part, (mx - vx, my - vy))
     return im
 
@@ -846,6 +853,40 @@ def log(msg: str):
             f.write(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
     except Exception:
         pass
+
+
+def config_candidates() -> list[Path]:
+    """Orte, an denen eine vorbereitete config.json liegen kann (Desktop, OneDrive-Desktop, Downloads, neben der .exe)."""
+    home = Path.home()
+    exe_dir = Path(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]).resolve().parent
+    out = []
+    for d in (home / "Desktop", home / "OneDrive" / "Desktop", home / "OneDrive" / "Schreibtisch",
+              home / "Downloads", exe_dir):
+        for name in ("config.json", "wochenzentrale-config.json"):
+            p = d / name
+            if p not in out and p.resolve() != CONFIG.resolve():
+                out.append(p)
+    return out
+
+
+def adopt_config() -> bool:
+    """Übernimmt eine vorbereitete config.json automatisch und räumt sie vom Desktop weg (enthält private Adressen)."""
+    for p in config_candidates():
+        try:
+            if not p.exists():
+                continue
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or "calendars" not in data:
+                continue  # fremde config.json, nicht anfassen
+            HOME.mkdir(parents=True, exist_ok=True)
+            CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            backup = HOME / "config.importiert.json"
+            shutil.move(str(p), str(backup))
+            log(f"Einstellungen übernommen von {p}")
+            return True
+        except Exception as ex:
+            log(f"config {p} nicht übernommen: {ex}")
+    return False
 
 
 def load_config() -> dict:
@@ -872,16 +913,15 @@ def install():
     target = HOME / exe.name
     if exe != target:
         shutil.copy2(exe, target)
-    side = exe.parent / "config.json"   # vorbereitete Einstellungen neben der .exe übernehmen
-    if side.exists() and not CONFIG.exists():
-        shutil.copy2(side, CONFIG)
+    adopted = adopt_config()   # vorbereitete config.json vom Desktop/Downloads übernehmen
     load_config()
     if IS_WIN:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as k:
             cmd = f'"{target}"' if getattr(sys, "frozen", False) else f'"{sys.executable}" "{target}"'
             winreg.SetValueEx(k, APP, 0, winreg.REG_SZ, cmd)
-        os.startfile(str(CONFIG))  # Einstellungen zum Ausfüllen öffnen
+        if not adopted:
+            os.startfile(str(CONFIG))  # nur wenn nichts vorbereitet war: Einstellungen zum Ausfüllen öffnen
         os.startfile(str(target)) if getattr(sys, "frozen", False) else None
     print(f"Installiert nach {target}. Einstellungen: {CONFIG}")
 
@@ -927,6 +967,7 @@ def main():
         render_all(cfg, dedupe(evs), now, [(0, 0, w, h)]).save(out)
         print("gespeichert:", out)
         return
+    adopt_config()
     cfg = load_config()
     if "--once" in args:
         return tick(cfg, 0, force=True)
@@ -940,7 +981,7 @@ def main():
     n = 0
     while not STOPFILE.exists():
         try:
-            if CONFIG.stat().st_mtime > time.time() - 65:
+            if adopt_config() or CONFIG.stat().st_mtime > time.time() - 65:
                 cfg = load_config()  # Einstellungen geändert: neu laden
             tick(cfg, n, force=(n == 0))
         except Exception as ex:
