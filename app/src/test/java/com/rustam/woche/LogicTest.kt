@@ -137,4 +137,13 @@ class LogicTest {
         assertFalse(isImportant("📚 Mathe: Thema 4 Relationen"))
         assertFalse(isImportant("🏋️ Gym A"))
     }
+
+    @Test fun sundayEveningShowsNextWeek() {
+        val sun = java.time.LocalDateTime.of(2026, 11, 1, 18, 30)
+        assertEquals(1, Paging.autoNextWeek(sun, 7))
+        assertEquals(0, Paging.autoNextWeek(sun.withHour(17), 7))
+        assertEquals(0, Paging.autoNextWeek(sun, 3))
+        assertEquals(0, Paging.autoNextWeek(sun.minusDays(1), 7))
+        assertEquals("Nächste Woche", Paging.label(1))
+    }
 }

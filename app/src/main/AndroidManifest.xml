@@ -21,6 +21,14 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <service
+            android:name=".WeekTile"
+            android:exported="true"
+            android:icon="@drawable/ic_week"
+            android:label="Woche"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+        <service
             android:name=".WocheWallpaper"
             android:exported="true"
             android:permission="android.permission.BIND_WALLPAPER">

@@ -176,6 +176,7 @@ fun App() {
                         Chip(look, "Zugriff erlauben", selected = true) { ask.launch(Manifest.permission.READ_CALENDAR) }
                     }
                 } else {
+                    WallpaperHint(look)
                     CountdownRow(look, countdown)
                     if (!weekView) NowCard(look, events)
                     Timeline(days, events, weekView, look, s, tick, onTap = { pick = it })
@@ -218,6 +219,23 @@ private fun Chip(look: Look, text: String, selected: Boolean = false, onClick: (
         .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp)) {
         Text(cap(look, text), color = Color(if (selected) look.theme.accent else look.theme.text), fontSize = 14.sp,
             fontFamily = fontFamily(look))
+    }
+}
+
+/** Nach einem App-Update setzt Android den Live-Hintergrund oft zurück: Hinweis mit direktem Weg zum Festlegen. */
+@Composable
+private fun WallpaperHint(look: Look) {
+    val ctx = LocalContext.current
+    val sp = ctx.getSharedPreferences("woche", 0)
+    val ours = remember {
+        try { android.app.WallpaperManager.getInstance(ctx).wallpaperInfo?.packageName == ctx.packageName } catch (_: Exception) { true }
+    }
+    if (ours || !sp.getBoolean("wall_ever_set", false)) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp).clip(RoundedCornerShape(8.dp))
+        .background(Color(alphaOf(look.theme.now, 0.18f))).border(1.dp, Color(look.theme.now), RoundedCornerShape(8.dp))
+        .clickable { setWallpaper(ctx) }.padding(12.dp)) {
+        Text(cap(look, "Hintergrund wurde zurückgesetzt"), color = Color(look.theme.text), fontWeight = FontWeight.Bold, fontFamily = fontFamily(look))
+        Text("Nach Updates setzt Android ihn zurück. Tippen, dann \"Startbildschirm und Sperrbildschirm\" wählen.", color = Color(look.theme.mute), fontSize = 12.sp)
     }
 }
 
@@ -392,6 +410,7 @@ private fun Toggle(look: Look, label: String, value: Boolean, onSet: (Boolean) -
 
 /** Öffnet das System-Fenster, in dem der Live-Hintergrund bestätigt wird. */
 private fun setWallpaper(ctx: android.content.Context) {
+    ctx.getSharedPreferences("woche", 0).edit().putBoolean("wall_ever_set", true).apply()
     try {
         ctx.startActivity(android.content.Intent(android.app.WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
             .putExtra(android.app.WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, android.content.ComponentName(ctx, WocheWallpaper::class.java))

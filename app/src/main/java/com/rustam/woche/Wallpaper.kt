@@ -15,6 +15,16 @@ class WocheWallpaper : WallpaperService() {
         private var launcherPage = 0      // per Homescreen-Seite geblättert
         private val resetToToday = Runnable { if (tapPages != 0) { tapPages = 0; draw() } }
         private var visible = false
+        // Kachel in den Schnelleinstellungen geändert -> sofort neu zeichnen, nach Ablauf zurück auf heute
+        private val prefs = applicationContext.getSharedPreferences("woche", 0)
+        private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "tile_ts" || key == "tile_pages" || key == "wall_days") {
+                draw()
+                handler.removeCallbacks(tileExpired)
+                handler.postDelayed(tileExpired, Paging.TILE_TTL_MS + 1_000)
+            }
+        }
+        private val tileExpired = Runnable { draw() }
         private val tick = object : Runnable { override fun run() { draw(); if (visible) handler.postDelayed(this, 60_000) } }
         override fun onVisibilityChanged(v: Boolean) { visible = v; handler.removeCallbacks(tick); if (v) tick.run() }
         override fun onSurfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) { draw() }
@@ -24,6 +34,7 @@ class WocheWallpaper : WallpaperService() {
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
             if (android.os.Build.VERSION.SDK_INT >= 30) setOffsetNotificationsEnabled(true)
+            prefs.registerOnSharedPreferenceChangeListener(prefListener)
             try { contentResolver.registerContentObserver(android.provider.CalendarContract.CONTENT_URI, true, observer) } catch (_: Exception) {}
         }
         // Tippen auf freie Stelle des Startbildschirms: rechts vor, links zurück, Mitte = heute
@@ -48,7 +59,11 @@ class WocheWallpaper : WallpaperService() {
             if (page != launcherPage) { launcherPage = page; draw() }
         }
 
-        override fun onDestroy() { handler.removeCallbacks(tick); contentResolver.unregisterContentObserver(observer) }
+        override fun onDestroy() {
+            handler.removeCallbacks(tick); handler.removeCallbacks(tileExpired)
+            contentResolver.unregisterContentObserver(observer)
+            prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
+        }
 
         private fun draw() {
             val holder = surfaceHolder
@@ -63,7 +78,9 @@ class WocheWallpaper : WallpaperService() {
             Renderer.background(c, w, h, look, s)
             val today = LocalDate.now()
             val nDays = applicationContext.getSharedPreferences("woche", 0).getInt("wall_days", 1).coerceIn(1, 7)
-            val shift = ((tapPages + launcherPage) * nDays).toLong()
+            val manual = tapPages + launcherPage + Paging.tilePages(applicationContext)
+            val pages = if (manual != 0) manual else Paging.autoNextWeek(java.time.LocalDateTime.now(), nDays)
+            val shift = (pages * nDays).toLong()
             val days = if (nDays == 7) { val m = mondayOf(today).plusDays(shift); (0..6).map { m.plusDays(it.toLong()) } }
                 else (0 until nDays).map { today.plusDays(shift + it) }
             val evs = CalendarRepo.load(applicationContext, days.first(), days.last().plusDays(1))
